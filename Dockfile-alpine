@@ -11,7 +11,7 @@ WORKDIR /app/oha
 
 RUN cargo install --path . --verbose
 
-RUN ls -l /root/.cargo/bin/oha && strip /root/.cargo/bin/oha || true
+RUN ls -l /usr/local/cargo/bin/oha && strip /usr/local/cargo/bin/oha || true
 
 # Target image
 FROM alpine:latest
@@ -27,7 +27,7 @@ LABEL name="${PACKAGE}" \
     licenses="MIT License" \
     source="https://github.com/${PACKAGE}"
 
-COPY --from=build /root/.cargo/bin/oha /bin/oha
+COPY --from=build /usr/local/cargo/bin/oha /bin/oha
 
 # 设置默认环境变量
 ENV th=2
