@@ -7,7 +7,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
     chmod +x /oha
 
 # 第二阶段：最终镜像
-FROM debian:bullseye-slim
+#FROM debian:bullseye-slim
+FROM gcr.io/distroless/cc-debian12
 
 ARG PACKAGE="zuohuadong/networkdownload"
 
@@ -25,7 +26,7 @@ ENV rq=1000000000000000
 ENV url=http://img.cmvideo.cn/publish/noms/2022/10/14/1O3VIGPVP6HTS.jpg
 
 # 使用 JSON 格式的 ENTRYPOINT 以优化信号处理
-ENTRYPOINT ["/bin/oha", "-n", "$rq", "-c", "$th", "$url"]
+ENTRYPOINT ["/bin/oha", "-z", "$rq", "-c", "$th", "$url"]
 
 
 
