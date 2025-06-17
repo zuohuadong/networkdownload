@@ -11,8 +11,8 @@ WORKDIR /app/oha
 
 RUN cargo install --path . --verbose
 
-# 检查文件是否存在
-RUN ls -l /root/.cargo/bin/oha && strip /root/.cargo/bin/oha
+# 可选：strip，如果失败可先注释掉
+RUN if [ -f /root/.cargo/bin/oha ]; then strip /root/.cargo/bin/oha; fi
 
 # Target image
 FROM alpine:latest
