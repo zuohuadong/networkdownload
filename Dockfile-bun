@@ -7,5 +7,6 @@ RUN bun install autocannon -g
 ENV th=2
 #ENV time=2147483647sec
 ENV url=http://img.cmvideo.cn/publish/noms/2022/10/14/1O3VIGPVP6HTS.jpg
+ENV ui=--no-progress
 
-ENTRYPOINT ["sh", "-c","autocannon -c ${th}  -f ${url}"]
+ENTRYPOINT ["sh", "-c", "autocannon ${ui} -c ${th} -f ${url}"]

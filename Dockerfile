@@ -24,9 +24,10 @@ COPY --from=builder /oha /bin/oha
 ENV th=2
 ENV time=2147483647sec
 ENV url=http://img.cmvideo.cn/publish/noms/2022/10/14/1O3VIGPVP6HTS.jpg
+ENV ui=--no-tui
 
 # 用 shell 形式的 ENTRYPOINT 让环境变量生效
-ENTRYPOINT exec /bin/oha -z ${time} -c ${th} ${url}
+ENTRYPOINT exec /bin/oha -z ${time} -c ${th} ${url}  ${ui} 
 
 
 
