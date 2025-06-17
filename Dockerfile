@@ -26,7 +26,7 @@ ENV time=2147483647
 ENV url=http://img.cmvideo.cn/publish/noms/2022/10/14/1O3VIGPVP6HTS.jpg
 
 # 用 shell 形式的 ENTRYPOINT 让环境变量生效
-ENTRYPOINT exec /bin/oha -z ${rq} -c ${th} ${url}
+ENTRYPOINT exec /bin/oha -z ${time} -c ${th} ${url}
 
 
 
