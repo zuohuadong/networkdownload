@@ -1,0 +1,11 @@
+FROM oven/bun:alpine
+
+RUN bun install autocannon -g
+
+
+# 设置默认环境变量
+ENV th=2
+#ENV time=2147483647sec
+ENV url=http://img.cmvideo.cn/publish/noms/2022/10/14/1O3VIGPVP6HTS.jpg
+
+ENTRYPOINT ["sh", "-c","autocannon -c ${th}  -f ${url}"]
