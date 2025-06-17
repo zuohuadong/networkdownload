@@ -9,9 +9,6 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Set up Docker
         uses: docker/setup-docker-action@v4
         with:
@@ -29,13 +26,6 @@ jobs:
           username: ${{ vars.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Docker Hub Description
-        uses: peter-evans/dockerhub-description@v3
-        with:
-          username: ${{ vars.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: zuohuadong/networkdownload
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -45,6 +35,4 @@ jobs:
           platforms: linux/amd64,linux/arm64
           load: true
           push: true
-          tags: |
-            zuohuadong/networkdownload:latest
-            zuohuadong/networkdownload:rust
+          tags: zuohuadong/networkdownload:latest
