@@ -24,8 +24,8 @@ ENV th=2
 ENV rq=1000000000000000
 ENV url=http://img.cmvideo.cn/publish/noms/2022/10/14/1O3VIGPVP6HTS.jpg
 
-# 使用环境变量的方式启动
-ENTRYPOINT exec /bin/oha -n ${rq} -c ${th} ${url}
+# 使用 JSON 格式的 ENTRYPOINT 以优化信号处理
+ENTRYPOINT ["/bin/oha", "-n", "$rq", "-c", "$th", "$url"]
 
 
 
