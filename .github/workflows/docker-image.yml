@@ -25,9 +25,12 @@ jobs:
         with:
           username: ${{ vars.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Docker Hub Description
         uses: peter-evans/dockerhub-description@v3
         with:
+          username: ${{ vars.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: zuohuadong/networkdownload
 
       - name: Set up QEMU
