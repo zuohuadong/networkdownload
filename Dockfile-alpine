@@ -3,15 +3,16 @@ ARG RUST_VERSION=1.86
 FROM rust:${RUST_VERSION}-alpine AS build
 WORKDIR /app
 
-RUN apk add --no-cache cmake git musl-dev openssl-dev pkgconfig
+RUN apk add --no-cache cmake git musl-dev openssl-dev pkgconfig build-base
 
 RUN git clone https://github.com/hatoo/oha.git
 
 WORKDIR /app/oha
 
-RUN apk add --no-cache cmake git musl-dev openssl-dev pkgconfig build-base
 RUN cargo install --path . --verbose
-RUN strip /root/.cargo/bin/oha
+
+# 检查文件是否存在
+RUN ls -l /root/.cargo/bin/oha && strip /root/.cargo/bin/oha
 
 # Target image
 FROM alpine:latest
