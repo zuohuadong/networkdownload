@@ -807,32 +807,24 @@ while true; do
 
     CURRENT_URL="$url"
 
+
     # Run the download for CHECK_INTERVAL seconds
     if run_download "$url"; then
         # Download cycle completed successfully
-        show_stats
-
-        # Check if speed is acceptable
+        # Check if speed is acceptable (silently)
         if ! check_current_speed "$url"; then
             # Speed is too slow, switch to next URL
-            log_info "切换到下一个节点..."
             CURRENT_URL_INDEX=$((CURRENT_URL_INDEX % TOTAL_URLS + 1))
 
-            # If we've cycled back to first URL, maybe rebenchmark
+            # If we've cycled back to first URL, rebenchmark
             if [ "$CURRENT_URL_INDEX" -eq 1 ]; then
-                log_warning "已尝试所有��速节点，重新测速..."
                 rebenchmark_urls
                 URL_ARRAY=($URL_LIST)
                 TOTAL_URLS=${#URL_ARRAY[@]}
             fi
-            sleep 1
-        else
-            # Speed is good, continue using this URL
-            log_dim "  → 速度正常，继续使用当前节点"
         fi
     else
         # Download failed, try next URL
-        log_error "下载失败，${COLOR_YELLOW}切换到下一个节点...${COLOR_RESET}"
         CURRENT_URL_INDEX=$((CURRENT_URL_INDEX % TOTAL_URLS + 1))
         sleep 3
     fi
