@@ -8,24 +8,24 @@ export LC_ALL=C.UTF-8
 # Terminal colors and formatting
 if [ -t 1 ]; then
     # Check if terminal supports colors
-    COLOR_RESET='\033[0m'
-    COLOR_BOLD='\033[1m'
-    COLOR_DIM='\033[2m'
-    COLOR_RED='\033[0;31m'
-    COLOR_GREEN='\033[0;32m'
-    COLOR_YELLOW='\033[0;33m'
-    COLOR_BLUE='\033[0;34m'
-    COLOR_MAGENTA='\033[0;35m'
-    COLOR_CYAN='\033[0;36m'
-    COLOR_WHITE='\033[0;37m'
-    COLOR_GRAY='\033[0;90m'
+    COLOR_RESET=$'\033[0m'
+    COLOR_BOLD=$'\033[1m'
+    COLOR_DIM=$'\033[2m'
+    COLOR_RED=$'\033[0;31m'
+    COLOR_GREEN=$'\033[0;32m'
+    COLOR_YELLOW=$'\033[0;33m'
+    COLOR_BLUE=$'\033[0;34m'
+    COLOR_MAGENTA=$'\033[0;35m'
+    COLOR_CYAN=$'\033[0;36m'
+    COLOR_WHITE=$'\033[0;37m'
+    COLOR_GRAY=$'\033[0;90m'
 
     # Bold colors
-    COLOR_BOLD_RED='\033[1;31m'
-    COLOR_BOLD_GREEN='\033[1;32m'
-    COLOR_BOLD_YELLOW='\033[1;33m'
-    COLOR_BOLD_BLUE='\033[1;34m'
-    COLOR_BOLD_CYAN='\033[1;36m'
+    COLOR_BOLD_RED=$'\033[1;31m'
+    COLOR_BOLD_GREEN=$'\033[1;32m'
+    COLOR_BOLD_YELLOW=$'\033[1;33m'
+    COLOR_BOLD_BLUE=$'\033[1;34m'
+    COLOR_BOLD_CYAN=$'\033[1;36m'
 else
     # No colors if not in terminal
     COLOR_RESET=''
@@ -119,16 +119,14 @@ show_live_stats() {
         local empty=$((bar_width - filled))
         local bar=$(printf "%${filled}s" | tr ' ' '█')$(printf "%${empty}s" | tr ' ' '░')
 
-        # Format short URL
-        local short_url="${url:0:35}"
-        [ ${#url} -gt 35 ] && short_url="${short_url}..."
-
-        # Update line in place
-        echo -ne "\r${COLOR_CYAN}📥 下载中${COLOR_RESET} ${COLOR_BOLD}[${bar}]${COLOR_RESET} ${progress}%  "
-        echo -ne "${COLOR_DIM}${short_url}${COLOR_RESET}  "
-        echo -ne "${COLOR_YELLOW}${remaining}s${COLOR_RESET} 剩余  "
-        echo -ne "${COLOR_GREEN}平均: ${avg_speed} KB/s${COLOR_RESET}  "
-        echo -ne "${COLOR_MAGENTA}周期: ${DOWNLOAD_CYCLES}${COLOR_RESET}\033[K"
+        # Update line in place - single line with all info
+        echo -ne "\r${COLOR_CYAN}📥${COLOR_RESET} "
+        echo -ne "${COLOR_BOLD}[${bar}]${COLOR_RESET} ${progress}% | "
+        echo -ne "${COLOR_YELLOW}${remaining}s${COLOR_RESET} | "
+        echo -ne "${COLOR_GREEN}周期:${DOWNLOAD_CYCLES}${COLOR_RESET} | "
+        echo -ne "${COLOR_MAGENTA}流量:$(format_bytes $TOTAL_BYTES)${COLOR_RESET} | "
+        echo -ne "${COLOR_CYAN}速度:${avg_speed}KB/s${COLOR_RESET} | "
+        echo -ne "${COLOR_DIM}#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}\033[K"
 
         sleep 1
     done
@@ -184,6 +182,7 @@ BENCHMARK_SIZE=5242880  # 5MB for quick speed check (reduced from 10MB)
 BENCHMARK_CONCURRENT=${benchmark_concurrent:-5}  # Concurrent benchmark threads (default 5)
 MIN_BENCHMARK_SPEED=${min_benchmark_speed:-500}  # Filter out URLs slower than this in KB/s (default 500 KB/s)
 TOP_URLS_COUNT=${top_urls:-0}  # Number of fastest URLs to keep (default 0 = no limit, keep all qualifying URLs)
+MAX_DISPLAY_URLS=${max_display_urls:-10}  # Maximum number of URLs to display in list (default 10, 0 = show all)
 
 # Traffic statistics variables
 TOTAL_BYTES=0  # Total bytes downloaded (累计流量)
@@ -219,6 +218,11 @@ fi
 echo -e "  ${COLOR_CYAN}Check Interval:${COLOR_RESET}    ${COLOR_BOLD}${CHECK_INTERVAL}s${COLOR_RESET} ${COLOR_DIM}(every $((CHECK_INTERVAL / 60)) min)${COLOR_RESET}"
 echo -e "  ${COLOR_CYAN}Slow Threshold:${COLOR_RESET}    ${COLOR_BOLD}${SLOW_THRESHOLD}${COLOR_RESET} ${COLOR_DIM}(immediate if 1)${COLOR_RESET}"
 echo -e "  ${COLOR_CYAN}Concurrent Tests:${COLOR_RESET}  ${COLOR_BOLD}${BENCHMARK_CONCURRENT}${COLOR_RESET}"
+if [ "$MAX_DISPLAY_URLS" -eq 0 ]; then
+    echo -e "  ${COLOR_CYAN}Max Display:${COLOR_RESET}       ${COLOR_BOLD}不限制${COLOR_RESET} ${COLOR_DIM}(显示所有节点)${COLOR_RESET}"
+else
+    echo -e "  ${COLOR_CYAN}Max Display:${COLOR_RESET}       ${COLOR_BOLD}${MAX_DISPLAY_URLS}${COLOR_RESET} ${COLOR_DIM}个节点${COLOR_RESET}"
+fi
 echo ""
 if [ -n "$BANDWIDTH_LIMIT_DOWNLOAD" ] || [ -n "$BANDWIDTH_LIMIT_UPLOAD" ]; then
     if [ "$TRICKLE_AVAILABLE" = true ]; then
@@ -261,7 +265,7 @@ format_duration() {
     printf "%02d:%02d:%02d" $hours $minutes $secs
 }
 
-# Function to display traffic statistics
+# Function to display traffic statistics (dynamic, in-place update)
 show_stats() {
     local current_time=$(date +%s)
     local session_duration=$((current_time - SESSION_START))
@@ -271,18 +275,17 @@ show_stats() {
         avg_speed=$((TOTAL_BYTES / session_duration / 1024))  # KB/s
     fi
 
-    log_section "📊 流量统计 | Traffic Statistics"
-    echo ""
-    printf "  %-20s ${COLOR_BOLD}%s${COLOR_RESET}\n" "${COLOR_CYAN}总下载流量:${COLOR_RESET}" "$(format_bytes $TOTAL_BYTES)"
-    printf "  %-20s ${COLOR_BOLD}%s${COLOR_RESET}\n" "${COLOR_CYAN}运行时长:${COLOR_RESET}" "$(format_duration $session_duration)"
-    printf "  %-20s ${COLOR_BOLD}%s 次${COLOR_RESET}\n" "${COLOR_CYAN}下载周期:${COLOR_RESET}" "${DOWNLOAD_CYCLES}"
-    printf "  %-20s ${COLOR_BOLD}%s KB/s${COLOR_RESET}\n" "${COLOR_CYAN}平均速度:${COLOR_RESET}" "${avg_speed}"
-    if [ -n "$CURRENT_URL" ]; then
-        local short_url="${CURRENT_URL:0:50}"
-        [ ${#CURRENT_URL} -gt 50 ] && short_url="${short_url}..."
-        printf "  %-20s ${COLOR_DIM}%s${COLOR_RESET}\n" "${COLOR_CYAN}当前节点:${COLOR_RESET}" "$short_url"
-    fi
-    echo ""
+    local short_url="${CURRENT_URL:0:40}"
+    [ ${#CURRENT_URL} -gt 40 ] && short_url="${short_url}..."
+
+    # Single line dynamic update
+    echo -ne "\r${COLOR_CYAN}📊${COLOR_RESET} "
+    echo -ne "${COLOR_BOLD}周期:${DOWNLOAD_CYCLES}${COLOR_RESET} | "
+    echo -ne "${COLOR_GREEN}流量:$(format_bytes $TOTAL_BYTES)${COLOR_RESET} | "
+    echo -ne "${COLOR_YELLOW}时长:$(format_duration $session_duration)${COLOR_RESET} | "
+    echo -ne "${COLOR_MAGENTA}速度:${avg_speed}KB/s${COLOR_RESET} | "
+    echo -ne "${COLOR_CYAN}节点:#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}"
+    echo -ne "\033[K"
 }
 
 # Function to test if a URL is accessible
@@ -441,7 +444,17 @@ $EXTERNAL_URLS"
     log_dim "  平均速度: ${avg_speed} KB/s | 过滤阈值: max(${MIN_BENCHMARK_SPEED}, ${avg_speed}) KB/s"
     echo ""
     local index=1
+    local displayed=0
     for url in $SORTED_URLS; do
+        # Limit display count if MAX_DISPLAY_URLS > 0
+        if [ "$MAX_DISPLAY_URLS" -gt 0 ] && [ "$displayed" -ge "$MAX_DISPLAY_URLS" ]; then
+            local remaining=$((FILTERED_COUNT - displayed))
+            if [ "$remaining" -gt 0 ]; then
+                log_dim "  ... 还有 ${remaining} 个节点未显示 (设置 max_display_urls=0 显示全部)"
+            fi
+            break
+        fi
+
         # Get speed from temp file before deletion
         speed=$(grep -F "$url" "$TEMP_FILE" | head -1 | awk '{print $1}')
         local short_url="${url:0:45}"
@@ -468,6 +481,7 @@ $EXTERNAL_URLS"
 
         printf "  ${COLOR_BOLD}#%d${COLOR_RESET} ${speed_color}%-8s KB/s${COLOR_RESET} %s ${COLOR_DIM}%s${COLOR_RESET}\n" "$index" "$speed" "$speed_indicator" "$short_url"
         index=$((index + 1))
+        displayed=$((displayed + 1))
     done
     echo ""
 
@@ -576,38 +590,27 @@ run_download() {
 check_current_speed() {
     local url=$1
 
-    log_progress "正在检测速度..."
+    # Speed check is silent, just update internal counters
     local current_speed=$(benchmark_url "$url")
-    clear_line
 
     if [ "$current_speed" -lt "$MIN_SPEED" ]; then
         SLOW_COUNT=$((SLOW_COUNT + 1))
-        log_warning "速度 ${COLOR_BOLD}${current_speed} KB/s${COLOR_RESET}${COLOR_YELLOW} 低于阈值 ${MIN_SPEED} KB/s${COLOR_RESET} ${COLOR_DIM}(检测: ${SLOW_COUNT}/${SLOW_THRESHOLD})${COLOR_RESET}"
 
         if [ "$SLOW_COUNT" -ge "$SLOW_THRESHOLD" ]; then
-            log_info "当前节点过慢，准备切换..."
             # Count remaining URLs in list
             local url_count=$(echo "$URL_LIST" | wc -w)
 
             if [ "$url_count" -gt 1 ]; then
-                log_success "切换到下一个快速节点"
                 SLOW_COUNT=0  # Reset counter for next URL
                 return 1  # Trigger URL switch to next in list
             else
-                log_warning "已是最后一个快速节点，重新测速所有节点..."
+                # Need to rebenchmark all URLs
                 rebenchmark_urls
                 return 1  # Trigger URL switch
             fi
-        else
-            log_dim "  → 继续观察，如果持续慢速将切换节点"
         fi
         return 0  # Continue with current URL for now
     else
-        if [ "$SLOW_COUNT" -gt 0 ]; then
-            log_success "速度已恢复 ${COLOR_BOLD}${current_speed} KB/s${COLOR_RESET}"
-        else
-            log_success "速度检测通过 ${COLOR_BOLD}${current_speed} KB/s${COLOR_RESET} ${COLOR_DIM}(阈值: ${MIN_SPEED} KB/s)${COLOR_RESET}"
-        fi
         SLOW_COUNT=0  # Reset counter if speed is good
     fi
 
@@ -717,7 +720,17 @@ if [ -z "$SORTED_URLS" ]; then
     log_info "将使用的节点列表"
     echo ""
     index=1
+    displayed=0
     for url in $SORTED_URLS; do
+        # Limit display count if MAX_DISPLAY_URLS > 0
+        if [ "$MAX_DISPLAY_URLS" -gt 0 ] && [ "$displayed" -ge "$MAX_DISPLAY_URLS" ]; then
+            remaining=$((FILTERED_COUNT - displayed))
+            if [ "$remaining" -gt 0 ]; then
+                log_dim "  ... 还有 ${remaining} 个节点未显示 (设置 max_display_urls=0 显示全部)"
+            fi
+            break
+        fi
+
         # Get speed from temp file before deletion
         speed=$(grep -F "$url" "$TEMP_FILE" | head -1 | awk '{print $1}')
         local short_url="${url:0:45}"
@@ -744,6 +757,7 @@ if [ -z "$SORTED_URLS" ]; then
 
         printf "  ${COLOR_BOLD}#%d${COLOR_RESET} ${speed_color}%-8s KB/s${COLOR_RESET} %s ${COLOR_DIM}%s${COLOR_RESET}\n" "$index" "$speed" "$speed_indicator" "$short_url"
         index=$((index + 1))
+        displayed=$((displayed + 1))
     done
     echo ""
 
@@ -768,19 +782,12 @@ while true; do
     # Handle custom URL if provided
     if [ -n "$url_custom" ]; then
         CURRENT_URL="$url_custom"
-        short_url="${url_custom:0:50}"
-        [ ${#url_custom} -gt 50 ] && short_url="${short_url}..."
-        log_info "使用自定义节点: ${COLOR_DIM}${short_url}${COLOR_RESET}"
 
         if run_download "$url_custom"; then
-            show_stats
-
-            # Check speed, but continue using custom URL regardless
-            if ! check_current_speed "$url_custom"; then
-                log_warning "自定义节点速度过慢，但将继续使用"
-            fi
+            # Check speed silently
+            check_current_speed "$url_custom" >/dev/null 2>&1
         else
-            log_error "自定义节点下载失败，${COLOR_YELLOW}3秒后重试...${COLOR_RESET}"
+            # Download failed, wait and retry
             sleep 3
         fi
         continue
@@ -790,7 +797,7 @@ while true; do
     url="${URL_ARRAY[$((CURRENT_URL_INDEX - 1))]}"
 
     if [ -z "$url" ]; then
-        log_warning "URL 列表为空，重新测速..."
+        # URL list is empty, rebenchmark
         rebenchmark_urls
         URL_ARRAY=($URL_LIST)
         TOTAL_URLS=${#URL_ARRAY[@]}
@@ -799,13 +806,6 @@ while true; do
     fi
 
     CURRENT_URL="$url"
-    short_url="${url:0:45}"
-    [ ${#url} -gt 45 ] && short_url="${short_url}..."
-
-    log_section "📥 下载周期 #$((DOWNLOAD_CYCLES + 1))"
-    echo ""
-    log_info "节点: ${COLOR_BOLD}#${CURRENT_URL_INDEX}${COLOR_RESET}/${TOTAL_URLS} ${COLOR_DIM}${short_url}${COLOR_RESET}"
-    echo ""
 
     # Run the download for CHECK_INTERVAL seconds
     if run_download "$url"; then
