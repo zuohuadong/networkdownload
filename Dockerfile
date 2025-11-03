@@ -17,17 +17,25 @@ LABEL name="${PACKAGE}" \
     licenses="MIT License" \
     source="https://github.com/${PACKAGE}"
 
+# 安装 curl 用于 URL 测试
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
 # 从构建阶段复制 oha 二进制文件
 COPY --from=builder /oha /bin/oha
+
+# 复制入口脚本
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # 设置默认环境变量
 ENV th=2
 ENV time=2147483647sec
-ENV url=http://img.cmvideo.cn/publish/noms/2022/10/14/1O3VIGPVP6HTS.jpg
+ENV url_custom=""
 ENV ui=--no-tui
+ENV tool=oha
 
-# 用 shell 形式的 ENTRYPOINT 让环境变量生效
-ENTRYPOINT exec /bin/oha -z ${time} -c ${th} ${url}  ${ui} 
+# 使用新的入口脚本，支持多个备用 URL
+ENTRYPOINT ["/entrypoint.sh"] 
 
 
 
