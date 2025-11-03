@@ -656,12 +656,12 @@ if [ -z "$SORTED_URLS" ]; then
     clear_line
 
     # Calculate average speed from all tested URLs
-    local avg_speed=0
-    local total_speed=0
-    local valid_count=0
+    avg_speed=0
+    total_speed=0
+    valid_count=0
 
     while IFS= read -r line; do
-        local speed=$(echo "$line" | awk '{print $1}')
+        speed=$(echo "$line" | awk '{print $1}')
         if [ -n "$speed" ] && [ "$speed" -gt 0 ]; then
             total_speed=$((total_speed + speed))
             valid_count=$((valid_count + 1))
@@ -733,11 +733,11 @@ if [ -z "$SORTED_URLS" ]; then
 
         # Get speed from temp file before deletion
         speed=$(grep -F "$url" "$TEMP_FILE" | head -1 | awk '{print $1}')
-        local short_url="${url:0:45}"
+        short_url="${url:0:45}"
         [ ${#url} -gt 45 ] && short_url="${short_url}..."
 
         # Color code based on speed
-        local speed_color="${COLOR_GREEN}"
+        speed_color="${COLOR_GREEN}"
         if [ "$speed" -lt "$MIN_BENCHMARK_SPEED" ]; then
             speed_color="${COLOR_YELLOW}"
         fi
@@ -746,7 +746,7 @@ if [ -z "$SORTED_URLS" ]; then
         fi
 
         # Show speed relative to average
-        local speed_indicator=""
+        speed_indicator=""
         if [ "$speed" -ge $((avg_speed * 2)) ]; then
             speed_indicator="${COLOR_GREEN}⚡${COLOR_RESET}"  # Much faster than average
         elif [ "$speed" -ge $((avg_speed * 3 / 2)) ]; then
