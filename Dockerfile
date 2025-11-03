@@ -17,8 +17,8 @@ LABEL name="${PACKAGE}" \
     licenses="MIT License" \
     source="https://github.com/${PACKAGE}"
 
-# 安装 curl 用于 URL 测试
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# 安装 curl 和 trickle（带宽限制工具）
+RUN apt-get update && apt-get install -y curl trickle && rm -rf /var/lib/apt/lists/*
 
 # 从构建阶段复制 oha 二进制文件
 COPY --from=builder /oha /bin/oha

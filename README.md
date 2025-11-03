@@ -20,12 +20,14 @@ docker run zuohuadong/networkdownload
 
 ✅ **智能测速选择**：启动时自动测试所有 URL 速度，优先使用最快的节点
 ✅ **并发测速**：默认 5 个并发测速，启动时间从 60 秒降至约 10 秒
-✅ **动态速度监控**：每 60 秒检查下载速度，低于阈值时自动重新测速切换节点
+✅ **动态速度监控**：每 60 秒检查下载速度,低于阈值时自动重新测速切换节点
 ✅ **多 URL 自动切换**：内置多个稳定的测速文件源（Cloudflare、OVH、Tele2 等）
 ✅ **自动更新 URL 列表**：通过 CI 定期从 [llxhq](https://github.com/uu6/llxhq) 获取最新刷流 URL
 ✅ **故障自动切换**：当一个 URL 失败时自动切换到下一个可用源
 ✅ **高稳定性**：不依赖单一资源，避免被限速或失效
-✅ **灵活配置**：支持自定义 URL、线程数、持续时间、速度阈值等参数
+✅ **带宽限速**：支持通过环境变量精确控制下载和上传带宽（基于 trickle）
+✅ **灵活配置**：支持自定义 URL、线程数、持续时间、速度阈值、带宽限制等参数  
+
 
 ## 内置 URL 列表
 
@@ -56,6 +58,8 @@ docker run zuohuadong/networkdownload
 | `min_speed` | 最低速度阈值（KB/s），低于此值将触发慢速计数 | `200` |
 | `check_interval` | 速度检查间隔（秒），建议 300-600 秒 | `300` |
 | `benchmark_concurrent` | 并发测速线程数，加快启动速度 | `5` |
+| `bandwidth_limit_download` | 下载带宽限制（KB/s），留空则不限制<br>**仅 Debian 版本支持** | `` |
+| `bandwidth_limit_upload` | 上传带宽限制（KB/s），留空则不限制<br>**仅 Debian 版本支持** | `` |
 
 ## 使用示例
 
@@ -97,13 +101,27 @@ docker run -e benchmark_concurrent=10 zuohuadong/networkdownload
 docker run -e th=20 -e min_speed=300 -e check_interval=300 -e benchmark_concurrent=8 zuohuadong/networkdownload
 ```
 
+### 带宽限速
+```bash
+# ⚠️ 注意：带宽限速仅支持 Debian 版本（latest/rust/debian）
+
+# 限制下载带宽为 10 MB/s (10240 KB/s) - Debian 版本
+docker run -e bandwidth_limit_download=10240 zuohuadong/networkdownload
+
+# 同时限制下载和上传带宽 - Debian 版本
+docker run -e bandwidth_limit_download=10240 -e bandwidth_limit_upload=5120 zuohuadong/networkdownload:debian
+
+# 结合其他配置使用带宽限速 - Debian 版本
+docker run -e th=10 -e bandwidth_limit_download=20480 -e min_speed=500 zuohuadong/networkdownload:latest
+```
+
 ## 版本说明
 
 | 版本标签 | 工具 | 架构支持 | 特点 |
 |---------|------|----------|------|
-| `latest` / `rust` / `debian` | oha | amd64, arm64, arm/v7 | 占用内存小，性能好 |
-| `alpine` | oha | amd64, arm64 | 体积最小（基于 Alpine） |
-| `bun` / `nodejs` | autocannon | amd64, arm64 | 兼容性好，使用 bun 优化 |
+| `latest` / `rust` / `debian` | oha | amd64, arm64, arm/v7 | 占用内存小，性能好，**支持带宽限速** |
+| `alpine` | oha | amd64, arm64 | 体积最小（基于 Alpine），**不支持带宽限速** |
+| `bun` / `nodejs` | autocannon | amd64, arm64 | 兼容性好，使用 bun 优化，**不支持带宽限速** |
 
 ### 多架构支持
 
@@ -133,10 +151,10 @@ docker run -e th=20 -e min_speed=300 -e check_interval=300 -e benchmark_concurre
 docker build -t networkdownload:rust -f Dockerfile .
 
 # 构建 alpine 版本
-docker build -t networkdownload:alpine -f Dockfile-alpine .
+docker build -t networkdownload:alpine -f Dockerfile-alpine .
 
 # 构建 bun 版本
-docker build -t networkdownload:bun -f Dockfile-bun .
+docker build -t networkdownload:bun -f Dockerfile-bun .
 ```
 
 ### 自动构建（CI/CD）
@@ -166,16 +184,40 @@ docker build -t networkdownload:bun -f Dockfile-bun .
 
 ### 如何限制带宽使用？
 
-Docker 支持网络限流：
+**⚠️ 重要提示：带宽限制功能仅在 Debian 版本（`latest` / `rust` / `debian`）中可用。**
+
+本工具的 Debian 版本内置了 `trickle` 带宽限制工具，可以通过环境变量轻松控制带宽：
 
 ```bash
-# 限制下载带宽为 10MB/s
-docker run --network=my-network \
-  --cap-add=NET_ADMIN \
-  zuohuadong/networkdownload
+# 限制下载带宽为 10 MB/s (10240 KB/s) - 仅 Debian 版本
+docker run -e bandwidth_limit_download=10240 zuohuadong/networkdownload:debian
+
+# 同时限制下载和上传带宽（下载 10 MB/s，上传 5 MB/s） - 仅 Debian 版本
+docker run -e bandwidth_limit_download=10240 -e bandwidth_limit_upload=5120 zuohuadong/networkdownload:latest
 ```
 
-或使用系统工具如 `tc` (Traffic Control) 进行限流。
+**注意**：带宽限制单位为 **KB/s**（千字节/秒）
+- 1 MB/s = 1024 KB/s
+- 10 MB/s = 10240 KB/s
+- 100 MB/s = 102400 KB/s
+
+**版本限制说明**：
+- ✅ **Debian 版本** (`latest`, `rust`, `debian`)：支持带宽限速
+- ❌ **Alpine 版本** (`alpine`)：不支持（Alpine Linux 软件库中没有 trickle）
+- ❌ **Bun 版本** (`bun`, `nodejs`)：不支持（基于 Alpine）
+
+**其他版本的替代方法**：
+
+如果你使用 Alpine 或 Bun 版本，可以使用 Docker 自带的网络限流功能：
+
+```bash
+# 使用 Docker 网络限流（需要 NET_ADMIN 权限）
+docker run --network=my-network \
+  --cap-add=NET_ADMIN \
+  zuohuadong/networkdownload:alpine
+```
+
+或者使用系统级工具如 `tc` (Traffic Control) 进行限流。
 
 ### 如何查看实时流量统计？
 
@@ -262,4 +304,3 @@ docker run -e url_custom=https://your-cdn.com/file.bin zuohuadong/networkdownloa
 ## 许可证
 
 Apache License 2.0
- 

@@ -47,6 +47,16 @@ SLOW_COUNT=0  # Counter for consecutive slow speed detections
 BENCHMARK_SIZE=5242880  # 5MB for quick speed check (reduced from 10MB)
 BENCHMARK_CONCURRENT=${benchmark_concurrent:-5}  # Concurrent benchmark threads (default 5)
 
+# Bandwidth limiting settings (using trickle)
+BANDWIDTH_LIMIT_DOWNLOAD=${bandwidth_limit_download:-}  # Download bandwidth limit in KB/s (empty = no limit)
+BANDWIDTH_LIMIT_UPLOAD=${bandwidth_limit_upload:-}  # Upload bandwidth limit in KB/s (empty = no limit)
+
+# Check if trickle is available
+TRICKLE_AVAILABLE=false
+if command -v trickle >/dev/null 2>&1; then
+    TRICKLE_AVAILABLE=true
+fi
+
 echo "Network Download Traffic Generator"
 echo "===================================="
 echo "Tool: $TOOL"
@@ -57,6 +67,19 @@ echo "Min Speed Threshold: ${MIN_SPEED} KB/s"
 echo "Speed Check Interval: ${CHECK_INTERVAL}s (every $((CHECK_INTERVAL / 60)) minutes)"
 echo "Slow Detection Threshold: ${SLOW_THRESHOLD} consecutive times"
 echo "Concurrent Benchmarks: ${BENCHMARK_CONCURRENT}"
+if [ -n "$BANDWIDTH_LIMIT_DOWNLOAD" ] || [ -n "$BANDWIDTH_LIMIT_UPLOAD" ]; then
+    if [ "$TRICKLE_AVAILABLE" = true ]; then
+        echo "Bandwidth Limiting: Enabled (via trickle)"
+        [ -n "$BANDWIDTH_LIMIT_DOWNLOAD" ] && echo "  Download Limit: ${BANDWIDTH_LIMIT_DOWNLOAD} KB/s"
+        [ -n "$BANDWIDTH_LIMIT_UPLOAD" ] && echo "  Upload Limit: ${BANDWIDTH_LIMIT_UPLOAD} KB/s"
+    else
+        echo "Bandwidth Limiting: UNAVAILABLE (trickle not installed)"
+        echo "  Note: Bandwidth limiting is only available in the Debian version"
+        echo "  Requested limits will be ignored: download=${BANDWIDTH_LIMIT_DOWNLOAD:-none} KB/s, upload=${BANDWIDTH_LIMIT_UPLOAD:-none} KB/s"
+    fi
+else
+    echo "Bandwidth Limiting: Disabled"
+fi
 echo ""
 
 # Function to test if a URL is accessible
@@ -177,14 +200,22 @@ run_download() {
     local url=$1
     local output_file=$(mktemp)
 
+    # Build trickle command if bandwidth limiting is enabled and trickle is available
+    local trickle_cmd=""
+    if [ "$TRICKLE_AVAILABLE" = true ] && { [ -n "$BANDWIDTH_LIMIT_DOWNLOAD" ] || [ -n "$BANDWIDTH_LIMIT_UPLOAD" ]; }; then
+        trickle_cmd="trickle"
+        [ -n "$BANDWIDTH_LIMIT_DOWNLOAD" ] && trickle_cmd="$trickle_cmd -d $BANDWIDTH_LIMIT_DOWNLOAD"
+        [ -n "$BANDWIDTH_LIMIT_UPLOAD" ] && trickle_cmd="$trickle_cmd -u $BANDWIDTH_LIMIT_UPLOAD"
+    fi
+
     case "$TOOL" in
         oha)
             # Run for CHECK_INTERVAL seconds - continuous download during this period
-            /bin/oha -z "${CHECK_INTERVAL}sec" -c "$THREADS" "$url" $UI_FLAG > "$output_file" 2>&1 &
+            $trickle_cmd /bin/oha -z "${CHECK_INTERVAL}sec" -c "$THREADS" "$url" $UI_FLAG > "$output_file" 2>&1 &
             local pid=$!
             ;;
         autocannon)
-            autocannon $UI_FLAG -c "$THREADS" -d $CHECK_INTERVAL "$url" > "$output_file" 2>&1 &
+            $trickle_cmd autocannon $UI_FLAG -c "$THREADS" -d $CHECK_INTERVAL "$url" > "$output_file" 2>&1 &
             local pid=$!
             ;;
         *)

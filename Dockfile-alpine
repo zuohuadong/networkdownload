@@ -28,6 +28,7 @@ LABEL name="${PACKAGE}" \
     source="https://github.com/${PACKAGE}"
 
 # 安装 curl 用于 URL 测试
+# 注意：Alpine 不支持 trickle，带宽限制功能在此版本不可用
 RUN apk add --no-cache curl
 
 COPY --from=build /usr/local/cargo/bin/oha /bin/oha
