@@ -18,31 +18,41 @@ docker run zuohuadong/networkdownload
 
 ## 特性
 
+✅ **智能测速选择**：启动时自动测试所有 URL 速度，优先使用最快的节点
+✅ **动态速度监控**：每 60 秒检查下载速度，低于阈值时自动重新测速切换节点
 ✅ **多 URL 自动切换**：内置多个稳定的测速文件源（Cloudflare、OVH、Tele2 等）
 ✅ **故障自动切换**：当一个 URL 失败时自动切换到下一个可用源
 ✅ **高稳定性**：不依赖单一资源，避免被限速或失效
-✅ **灵活配置**：支持自定义 URL、线程数、持续时间等参数
+✅ **灵活配置**：支持自定义 URL、线程数、持续时间、速度阈值等参数
 
 ## 内置 URL 列表
 
-该工具内置以下稳定的大文件下载源（100MB）：
+该工具内置以下稳定的大文件下载源（100MB），优先使用对中国大陆友好的节点：
 
+**亚洲优先节点**（中国大陆访问更快）：
+- Cachefly CDN（全球节点）
 - Cloudflare Speed Test
+- Hetzner 新加坡节点
+- Hetzner 香港节点
+
+**欧美备用节点**：
 - OVH Network Test
 - Tele2 Speed Test
 - ThinkBroadband Test
 - LeaseWeb Speed Test
-- Hetzner Speed Test
+- Hetzner 美国节点
 - OTE Speed Test
 
 ## 环境变量
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `th` | 线程数（并发连接数） | `2` |
+| `th` | 线程数（并发连接数） | `4` |
 | `time` | 运行时间（仅 oha 版本有效） | `2147483647sec` |
 | `url_custom` | 自定义 URL（留空则使用内置 URL 列表） | `` |
 | `ui` | 日志输出控制 | `--no-tui` (rust)<br>`--no-progress` (bun) |
+| `min_speed` | 最低速度阈值（KB/s），低于此值将触发慢速计数 | `200` |
+| `check_interval` | 速度检查间隔（秒），建议 300-600 秒 | `300` |
 
 ## 使用示例
 
@@ -70,9 +80,15 @@ docker run -e ui="" zuohuadong/networkdownload
 docker run -e ui="" zuohuadong/networkdownload:bun
 ```
 
+### 自定义速度监控参数
+```bash
+# 设置最低速度为 500 KB/s，每 10 分钟检查一次
+docker run -e min_speed=500 -e check_interval=600 zuohuadong/networkdownload
+```
+
 ### 组合配置
 ```bash
-docker run -e th=20 -e url_custom=https://example.com/100MB.bin zuohuadong/networkdownload
+docker run -e th=20 -e min_speed=300 -e check_interval=300 zuohuadong/networkdownload
 ```
 
 ## 版本说明
@@ -92,11 +108,14 @@ docker run -e th=20 -e url_custom=https://example.com/100MB.bin zuohuadong/netwo
 
 ## 工作原理
 
-1. 容器启动时，脚本会按顺序尝试内置的 URL 列表
-2. 每个 URL 会先进行连通性测试
-3. 选择第一个可用的 URL 开始下载流量
-4. 如果下载失败，自动切换到下一个 URL
-5. 如果所有 URL 都失败，等待 30 秒后重试
+1. **启动测速**：容器启动时，对所有内置 URL 进行速度测试（下载 5MB 数据测速）
+2. **智能排序**：根据实际测速结果，将 URL 按速度从快到慢排序
+3. **优先使用最快节点**：自动选择测速最快的 URL 开始下载流量
+4. **持续下载**：每个周期持续下载 5 分钟（可通过 `check_interval` 配置）
+5. **定期检查**：每个下载周期结束后检查速度（下载 5MB 测试）
+6. **连续慢速检测**：如果速度连续 3 次低于阈值（约 15 分钟），触发重新测速
+7. **智能切换**：重新测试所有 URL 并切换到新的最快节点
+8. **故障切换**：如果当前 URL 下载失败，立即切换到速度次快的 URL
 
 ## 构建镜像
 
@@ -171,6 +190,48 @@ docker run -e ui="" zuohuadong/networkdownload:bun
 - 专门用于测速，合法合规
 - 高可用性，多个备份
 
+### 智能测速如何工作？
+
+启动时会对每个 URL 进行速度测试：
+- 下载 5MB 数据样本测试实际速度（低开销）
+- 根据你的网络环境自动选择最快的节点
+- 不同地区和网络环境会自动适配最优节点
+- 避免硬编码节点优先级，实现真正的自适应
+
+### 动态速度监控如何工作？
+
+运行过程中会定期监控下载速度，采用低开销策略：
+- 默认每 5 分钟检查一次当前 URL 的实际下载速度
+- 检查时仅下载 5MB 测试数据，开销极小（每小时约 60MB）
+- 如果速度低于设定阈值（默认 200 KB/s），慢速计数器 +1
+- 必须连续 3 次检测到慢速（约 15 分钟）才触发重新测速
+- 如果速度恢复，计数器自动清零
+- 重新测速时切换到新的最快节点
+- 适应网络环境变化（如高峰期、线路拥塞等）
+
+**性能优化设计**：
+- ✅ 持续下载 5 分钟，不频繁中断
+- ✅ 测速开销低：每小时仅约 60MB（12次 × 5MB）
+- ✅ 避免误触发：连续慢速才切换，容忍短暂波动
+- ✅ 可自定义检查间隔，平衡响应速度和性能开销
+
+**使用场景示例**：
+```
+场景：晚高峰时某国际节点变慢
+  ↓
+第 1 次检测（5分钟后）：150 KB/s，低于 200 KB/s，计数 1/3
+  ↓
+第 2 次检测（10分钟后）：180 KB/s，仍低于阈值，计数 2/3
+  ↓
+第 3 次检测（15分钟后）：160 KB/s，仍低于阈值，计数 3/3
+  ↓
+触发重新测速所有 URL（约 50MB 开销）
+  ↓
+发现国内 CDN 节点此时更快（400 KB/s）
+  ↓
+自动切换到新节点，保持稳定速度
+```
+
 ### 可以添加自己的 URL 吗？
 
 可以！使用 `url_custom` 环境变量：
@@ -187,5 +248,5 @@ docker run -e url_custom=https://your-cdn.com/file.bin zuohuadong/networkdownloa
 
 ## 许可证
 
-MIT License
+Apache License 2.0
  
