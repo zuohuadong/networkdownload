@@ -19,8 +19,10 @@ docker run zuohuadong/networkdownload
 ## 特性
 
 ✅ **智能测速选择**：启动时自动测试所有 URL 速度，优先使用最快的节点
+✅ **并发测速**：默认 5 个并发测速，启动时间从 60 秒降至约 10 秒
 ✅ **动态速度监控**：每 60 秒检查下载速度，低于阈值时自动重新测速切换节点
 ✅ **多 URL 自动切换**：内置多个稳定的测速文件源（Cloudflare、OVH、Tele2 等）
+✅ **自动更新 URL 列表**：通过 CI 定期从 [llxhq](https://github.com/uu6/llxhq) 获取最新刷流 URL
 ✅ **故障自动切换**：当一个 URL 失败时自动切换到下一个可用源
 ✅ **高稳定性**：不依赖单一资源，避免被限速或失效
 ✅ **灵活配置**：支持自定义 URL、线程数、持续时间、速度阈值等参数
@@ -53,6 +55,7 @@ docker run zuohuadong/networkdownload
 | `ui` | 日志输出控制 | `--no-tui` (rust)<br>`--no-progress` (bun) |
 | `min_speed` | 最低速度阈值（KB/s），低于此值将触发慢速计数 | `200` |
 | `check_interval` | 速度检查间隔（秒），建议 300-600 秒 | `300` |
+| `benchmark_concurrent` | 并发测速线程数，加快启动速度 | `5` |
 
 ## 使用示例
 
@@ -84,11 +87,14 @@ docker run -e ui="" zuohuadong/networkdownload:bun
 ```bash
 # 设置最低速度为 500 KB/s，每 10 分钟检查一次
 docker run -e min_speed=500 -e check_interval=600 zuohuadong/networkdownload
+
+# 增加并发测速数量以加快启动（适合高带宽网络）
+docker run -e benchmark_concurrent=10 zuohuadong/networkdownload
 ```
 
 ### 组合配置
 ```bash
-docker run -e th=20 -e min_speed=300 -e check_interval=300 zuohuadong/networkdownload
+docker run -e th=20 -e min_speed=300 -e check_interval=300 -e benchmark_concurrent=8 zuohuadong/networkdownload
 ```
 
 ## 版本说明
@@ -108,14 +114,15 @@ docker run -e th=20 -e min_speed=300 -e check_interval=300 zuohuadong/networkdow
 
 ## 工作原理
 
-1. **启动测速**：容器启动时，对所有内置 URL 进行速度测试（下载 5MB 数据测速）
+1. **并发测速**：容器启动时，并发测试所有内置 URL（默认 5 个并发，下载 5MB 数据测速）
 2. **智能排序**：根据实际测速结果，将 URL 按速度从快到慢排序
-3. **优先使用最快节点**：自动选择测速最快的 URL 开始下载流量
-4. **持续下载**：每个周期持续下载 5 分钟（可通过 `check_interval` 配置）
-5. **定期检查**：每个下载周期结束后检查速度（下载 5MB 测试）
-6. **连续慢速检测**：如果速度连续 3 次低于阈值（约 15 分钟），触发重新测速
-7. **智能切换**：重新测试所有 URL 并切换到新的最快节点
-8. **故障切换**：如果当前 URL 下载失败，立即切换到速度次快的 URL
+3. **快速启动**：并发测速将启动时间从 60 秒降低到约 10 秒
+4. **优先使用最快节点**：自动选择测速最快的 URL 开始下载流量
+5. **持续下载**：每个周期持续下载 5 分钟（可通过 `check_interval` 配置）
+6. **定期检查**：每个下载周期结束后检查速度（下载 5MB 测试）
+7. **连续慢速检测**：如果速度连续 3 次低于阈值（约 15 分钟），触发重新测速
+8. **智能切换**：重新测试所有 URL 并切换到新的最快节点
+9. **故障切换**：如果当前 URL 下载失败，立即切换到速度次快的 URL
 
 ## 构建镜像
 
@@ -193,10 +200,16 @@ docker run -e ui="" zuohuadong/networkdownload:bun
 ### 智能测速如何工作？
 
 启动时会对每个 URL 进行速度测试：
+- **并发测速**：默认同时测试 5 个 URL，大幅减少启动时间（从 60秒降到约 10秒）
 - 下载 5MB 数据样本测试实际速度（低开销）
 - 根据你的网络环境自动选择最快的节点
 - 不同地区和网络环境会自动适配最优节点
 - 避免硬编码节点优先级，实现真正的自适应
+
+**并发测速优化**：
+- 顺序测速：10个 URL × 6秒 = 60秒启动时间
+- 并发测速（5个）：2轮 × 6秒 = **约12秒启动时间**
+- 时间节省：**80%+**
 
 ### 动态速度监控如何工作？
 

@@ -16,6 +16,19 @@ https://ash-speed.hetzner.com/100MB.bin
 http://speedtest.ftp.otenet.gr/files/test100Mb.db
 "
 
+# Load external URLs from file if available (auto-updated by CI)
+EXTERNAL_URL_FILE="/app/urls/external_urls.txt"
+if [ -f "$EXTERNAL_URL_FILE" ]; then
+    echo "Loading external URLs from $EXTERNAL_URL_FILE..."
+    EXTERNAL_URLS=$(grep -v '^#' "$EXTERNAL_URL_FILE" | grep -v '^$' || true)
+    if [ -n "$EXTERNAL_URLS" ]; then
+        EXTERNAL_COUNT=$(echo "$EXTERNAL_URLS" | wc -l)
+        echo "Found $EXTERNAL_COUNT external URLs from llxhq"
+        URLS="$URLS
+$EXTERNAL_URLS"
+    fi
+fi
+
 # Parse URLs into array
 URL_LIST=$(echo "$URLS" | grep -v '^$' | grep -v '^#')
 URL_COUNT=$(echo "$URL_LIST" | wc -l)
@@ -32,6 +45,7 @@ CHECK_INTERVAL=${check_interval:-300}  # Check speed every 5 minutes (default 30
 SLOW_THRESHOLD=3  # Number of consecutive slow detections before re-benchmarking (3 times = ~15 minutes)
 SLOW_COUNT=0  # Counter for consecutive slow speed detections
 BENCHMARK_SIZE=5242880  # 5MB for quick speed check (reduced from 10MB)
+BENCHMARK_CONCURRENT=${benchmark_concurrent:-5}  # Concurrent benchmark threads (default 5)
 
 echo "Network Download Traffic Generator"
 echo "===================================="
@@ -42,6 +56,7 @@ echo "Available URLs: $URL_COUNT"
 echo "Min Speed Threshold: ${MIN_SPEED} KB/s"
 echo "Speed Check Interval: ${CHECK_INTERVAL}s (every $((CHECK_INTERVAL / 60)) minutes)"
 echo "Slow Detection Threshold: ${SLOW_THRESHOLD} consecutive times"
+echo "Concurrent Benchmarks: ${BENCHMARK_CONCURRENT}"
 echo ""
 
 # Function to test if a URL is accessible
@@ -85,7 +100,25 @@ benchmark_url() {
     echo "$speed"
 }
 
-# Function to re-benchmark and re-sort all URLs
+# Function to benchmark a single URL and save result to file (for concurrent execution)
+benchmark_url_to_file() {
+    local url=$1
+    local result_file=$2
+
+    echo "Testing: $url"
+
+    # Check if URL is accessible
+    if test_url "$url" >/dev/null 2>&1; then
+        # Measure download speed
+        speed=$(benchmark_url "$url")
+        echo "  Speed: ${speed} KB/s"
+        echo "${speed} ${url}" >> "$result_file"
+    else
+        echo "  Not accessible, skipping..."
+    fi
+}
+
+# Function to re-benchmark and re-sort all URLs (with concurrent benchmarking)
 rebenchmark_urls() {
     echo ""
     echo "=========================================="
@@ -93,19 +126,29 @@ rebenchmark_urls() {
     echo "=========================================="
 
     TEMP_FILE=$(mktemp)
+    local pids=()
+    local count=0
 
     for url in $URL_LIST; do
-        echo "Testing: $url"
+        # Launch benchmark in background
+        benchmark_url_to_file "$url" "$TEMP_FILE" &
+        pids+=($!)
+        count=$((count + 1))
 
-        # Check if URL is accessible
-        if test_url "$url" >/dev/null 2>&1; then
-            # Measure download speed
-            speed=$(benchmark_url "$url")
-            echo "  Speed: ${speed} KB/s"
-            echo "${speed} ${url}" >> "$TEMP_FILE"
-        else
-            echo "  Not accessible, skipping..."
+        # Limit concurrent processes
+        if [ "$count" -ge "$BENCHMARK_CONCURRENT" ]; then
+            # Wait for current batch to complete
+            for pid in "${pids[@]}"; do
+                wait $pid 2>/dev/null
+            done
+            pids=()
+            count=0
         fi
+    done
+
+    # Wait for remaining processes
+    for pid in "${pids[@]}"; do
+        wait $pid 2>/dev/null
     done
 
     echo ""
@@ -194,25 +237,37 @@ check_current_speed() {
     return 0
 }
 
-# Benchmark all URLs and sort by speed (only run once at startup)
+# Benchmark all URLs and sort by speed (only run once at startup, with concurrent benchmarking)
 if [ -z "$SORTED_URLS" ]; then
     echo "Benchmarking URLs to find the fastest..."
     echo "========================================"
+    echo "Using concurrent benchmarking (up to ${BENCHMARK_CONCURRENT} at a time)"
+    echo ""
 
     TEMP_FILE=$(mktemp)
+    local pids=()
+    local count=0
 
     for url in $URL_LIST; do
-        echo "Testing: $url"
+        # Launch benchmark in background
+        benchmark_url_to_file "$url" "$TEMP_FILE" &
+        pids+=($!)
+        count=$((count + 1))
 
-        # First check if URL is accessible
-        if test_url "$url" >/dev/null 2>&1; then
-            # Measure download speed
-            speed=$(benchmark_url "$url")
-            echo "  Speed: ${speed} KB/s"
-            echo "${speed} ${url}" >> "$TEMP_FILE"
-        else
-            echo "  Not accessible, skipping..."
+        # Limit concurrent processes
+        if [ "$count" -ge "$BENCHMARK_CONCURRENT" ]; then
+            # Wait for current batch to complete
+            for pid in "${pids[@]}"; do
+                wait $pid 2>/dev/null
+            done
+            pids=()
+            count=0
         fi
+    done
+
+    # Wait for remaining processes
+    for pid in "${pids[@]}"; do
+        wait $pid 2>/dev/null
     done
 
     echo ""
