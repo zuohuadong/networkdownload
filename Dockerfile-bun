@@ -2,9 +2,8 @@ FROM oven/bun:alpine
 
 RUN bun install autocannon -g
 
-# 安装 curl 用于 URL 测试
-# 注意：Alpine 不支持 trickle，带宽限制功能在此版本不可用
-RUN apk add --no-cache curl
+# 安装 curl 和 bash
+RUN apk add --no-cache curl bash
 
 # 复制入口脚本
 COPY entrypoint.sh /entrypoint.sh

@@ -1,12 +1,21 @@
-# networkdownload
+<div align="center">
 
-[![ci-debian](https://github.com/zuohuadong/networkdownload/actions/workflows/docker-image.yml/badge.svg)](https://github.com/zuohuadong/networkdownload/actions/workflows/docker-image.yml)
-[![ci-alpine](https://github.com/zuohuadong/networkdownload/actions/workflows/docker-image%20alpine.yml/badge.svg)](https://github.com/zuohuadong/networkdownload/actions/workflows/docker-image%20alpine.yml)
-[![ci-bun](https://github.com/zuohuadong/networkdownload/actions/workflows/docker-image-bun.yml/badge.svg)](https://github.com/zuohuadong/networkdownload/actions/workflows/docker-image-bun.yml)
-[![Docker Hub](https://img.shields.io/docker/pulls/zuohuadong/networkdownload.svg)](https://hub.docker.com/r/zuohuadong/networkdownload)
-[![Docker Image Size](https://img.shields.io/docker/image-size/zuohuadong/networkdownload/latest)](https://hub.docker.com/r/zuohuadong/networkdownload)
+# 🚀 NetworkDownload
 
-网络下行流量拉取工具，支持多个备用 URL 自动切换，确保高可用性和稳定性。
+### 网络下行流量拉取工具
+
+[![CI Debian](https://img.shields.io/github/actions/workflow/status/zuohuadong/networkdownload/docker-image.yml?style=flat-square&logo=docker&label=Debian&color=blue)](https://github.com/zuohuadong/networkdownload/actions/workflows/docker-image.yml)
+[![CI Alpine](https://img.shields.io/github/actions/workflow/status/zuohuadong/networkdownload/docker-image%20alpine.yml?style=flat-square&logo=alpine-linux&label=Alpine&color=0D597F)](https://github.com/zuohuadong/networkdownload/actions/workflows/docker-image%20alpine.yml)
+[![CI Bun](https://img.shields.io/github/actions/workflow/status/zuohuadong/networkdownload/docker-image-bun.yml?style=flat-square&logo=bun&label=Bun&color=fbf0df)](https://github.com/zuohuadong/networkdownload/actions/workflows/docker-image-bun.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/zuohuadong/networkdownload?style=flat-square&logo=docker&color=2496ED)](https://hub.docker.com/r/zuohuadong/networkdownload)
+[![Docker Image Size](https://img.shields.io/docker/image-size/zuohuadong/networkdownload/latest?style=flat-square&logo=docker&color=2496ED)](https://hub.docker.com/r/zuohuadong/networkdownload)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green?style=flat-square)](LICENSE)
+
+支持多个备用 URL 自动切换 · 智能测速选择 · 带宽限速
+
+</div>
+
+---
 
 ## 快速开始
 
@@ -14,7 +23,7 @@
 docker run zuohuadong/networkdownload
 ```
 
-**Docker Hub**: https://hub.docker.com/r/zuohuadong/networkdownload
+> 💡 **提示**：查看更多镜像版本，请访问 [Docker Hub](https://hub.docker.com/r/zuohuadong/networkdownload)
 
 ## 特性
 

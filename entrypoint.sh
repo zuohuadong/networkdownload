@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Network download traffic generator with multiple fallback URLs
 
 # Stable large file URLs (100MB+ each)
@@ -276,8 +276,8 @@ if [ -z "$SORTED_URLS" ]; then
     echo ""
 
     TEMP_FILE=$(mktemp)
-    local pids=()
-    local count=0
+    pids=()
+    count=0
 
     for url in $URL_LIST; do
         # Launch benchmark in background
@@ -311,7 +311,7 @@ if [ -z "$SORTED_URLS" ]; then
 
     # Show sorted results
     echo "URL priority order:"
-    local index=1
+    index=1
     for url in $SORTED_URLS; do
         echo "  $index. $url"
         index=$((index + 1))
