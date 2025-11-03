@@ -1,6 +1,10 @@
 #!/bin/bash
 # Network download traffic generator with multiple fallback URLs
 
+# Set UTF-8 locale to support Unicode characters and emojis
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
 # Terminal colors and formatting
 if [ -t 1 ]; then
     # Check if terminal supports colors
