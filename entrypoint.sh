@@ -764,7 +764,7 @@ while true; do
     # Handle custom URL if provided
     if [ -n "$url_custom" ]; then
         CURRENT_URL="$url_custom"
-        local short_url="${url_custom:0:50}"
+        short_url="${url_custom:0:50}"
         [ ${#url_custom} -gt 50 ] && short_url="${short_url}..."
         log_info "使用自定义节点: ${COLOR_DIM}${short_url}${COLOR_RESET}"
 
@@ -783,7 +783,7 @@ while true; do
     fi
 
     # Get current URL from array (bash arrays are 0-indexed)
-    local url="${URL_ARRAY[$((CURRENT_URL_INDEX - 1))]}"
+    url="${URL_ARRAY[$((CURRENT_URL_INDEX - 1))]}"
 
     if [ -z "$url" ]; then
         log_warning "URL 列表为空，重新测速..."
@@ -795,7 +795,7 @@ while true; do
     fi
 
     CURRENT_URL="$url"
-    local short_url="${url:0:45}"
+    short_url="${url:0:45}"
     [ ${#url} -gt 45 ] && short_url="${short_url}..."
 
     log_section "📥 下载周期 #$((DOWNLOAD_CYCLES + 1))"
