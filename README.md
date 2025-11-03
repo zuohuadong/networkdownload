@@ -69,7 +69,7 @@ docker run zuohuadong/networkdownload
 | `check_interval` | 速度检查间隔（秒），建议 300-600 秒 | `300` |
 | `slow_threshold` | 慢速检测次数阈值，达到后切换节点 | `1` (立即切换) |
 | `min_benchmark_speed` | 过滤阈值（KB/s），启动时过滤掉速度低于此值的节点 | `500` |
-| `top_urls` | 保留最快的 N 个节点用于轮换 | `3` |
+| `top_urls` | 保留最快的 N 个节点用于轮换（0=不限制，保留所有符合条件的节点） | `0` (不限制) |
 | `benchmark_concurrent` | 并发测速线程数，加快启动速度 | `5` |
 | `bandwidth_limit_download` | 下载带宽限制（KB/s），留空则不限制<br>**仅 Debian 版本支持** | `` |
 | `bandwidth_limit_upload` | 上传带宽限制（KB/s），留空则不限制<br>**仅 Debian 版本支持** | `` |
@@ -108,8 +108,11 @@ docker run -e min_speed=500 -e check_interval=600 zuohuadong/networkdownload
 # 增加并发测速数量以加快启动（适合高带宽网络）
 docker run -e benchmark_concurrent=10 zuohuadong/networkdownload
 
-# 只保留最快的 5 个节点，过滤掉低于 1000 KB/s 的节点
-docker run -e top_urls=5 -e min_benchmark_speed=1000 zuohuadong/networkdownload
+# 限制保留最快的 3 个节点，过滤掉低于 1000 KB/s 的节点
+docker run -e top_urls=3 -e min_benchmark_speed=1000 zuohuadong/networkdownload
+
+# 不限制节点数量，保留所有高于平均速度的节点（默认行为）
+docker run -e top_urls=0 -e min_benchmark_speed=500 zuohuadong/networkdownload
 
 # 允许容忍 3 次慢速检测后再切换节点（适合网络波动环境）
 docker run -e slow_threshold=3 zuohuadong/networkdownload
@@ -126,13 +129,21 @@ docker run \
   -e check_interval=300 \
   zuohuadong/networkdownload
 
-# 稳定性优先配置：保留更多备用节点，容忍短暂波动
+# 稳定性优先配置：保留所有快速节点，容忍短暂波动
 docker run \
   -e th=10 \
-  -e top_urls=5 \
+  -e top_urls=0 \
   -e min_benchmark_speed=300 \
   -e slow_threshold=2 \
   -e check_interval=600 \
+  zuohuadong/networkdownload
+
+# 最大化可用节点：保留所有高于平均速度的节点
+docker run \
+  -e th=15 \
+  -e top_urls=0 \
+  -e min_benchmark_speed=200 \
+  -e slow_threshold=1 \
   zuohuadong/networkdownload
 ```
 
@@ -171,7 +182,8 @@ docker run -e th=10 -e bandwidth_limit_download=20480 -e min_speed=500 zuohuadon
 2. **智能过滤**：双重过滤机制，确保只使用真正快速的节点：
    - 过滤条件 1：速度 ≥ min_benchmark_speed（默认 500 KB/s）
    - 过滤条件 2：速度 ≥ 所有节点的平均速度
-   - 只保留同时满足两个条件的最快 N 个节点（默认 3 个）
+   - 保留所有同时满足两个条件的节点（默认不限制数量）
+   - 可通过 `top_urls` 参数限制保留节点数量
 3. **快速启动**：并发测速将启动时间从 60 秒降低到约 10 秒
 4. **粘性使用**：自动选择最快的节点并持续使用，不会轮询所有节点
 5. **持续下载**：每个周期持续下载 5 分钟（可通过 `check_interval` 配置）

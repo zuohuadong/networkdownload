@@ -179,7 +179,7 @@ SLOW_COUNT=0  # Counter for consecutive slow speed detections
 BENCHMARK_SIZE=5242880  # 5MB for quick speed check (reduced from 10MB)
 BENCHMARK_CONCURRENT=${benchmark_concurrent:-5}  # Concurrent benchmark threads (default 5)
 MIN_BENCHMARK_SPEED=${min_benchmark_speed:-500}  # Filter out URLs slower than this in KB/s (default 500 KB/s)
-TOP_URLS_COUNT=${top_urls:-3}  # Number of fastest URLs to keep and rotate (default 3)
+TOP_URLS_COUNT=${top_urls:-0}  # Number of fastest URLs to keep (default 0 = no limit, keep all qualifying URLs)
 
 # Traffic statistics variables
 TOTAL_BYTES=0  # Total bytes downloaded (累计流量)
@@ -207,7 +207,11 @@ echo ""
 log_info "Speed Thresholds"
 echo -e "  ${COLOR_CYAN}Min Speed:${COLOR_RESET}         ${COLOR_BOLD}${MIN_SPEED} KB/s${COLOR_RESET}"
 echo -e "  ${COLOR_CYAN}Min Benchmark:${COLOR_RESET}     ${COLOR_BOLD}${MIN_BENCHMARK_SPEED} KB/s${COLOR_RESET}"
-echo -e "  ${COLOR_CYAN}Top URLs:${COLOR_RESET}          ${COLOR_BOLD}${TOP_URLS_COUNT}${COLOR_RESET}"
+if [ "$TOP_URLS_COUNT" -eq 0 ]; then
+    echo -e "  ${COLOR_CYAN}Top URLs:${COLOR_RESET}          ${COLOR_BOLD}不限制${COLOR_RESET} ${COLOR_DIM}(保留所有符合条件的节点)${COLOR_RESET}"
+else
+    echo -e "  ${COLOR_CYAN}Top URLs:${COLOR_RESET}          ${COLOR_BOLD}${TOP_URLS_COUNT}${COLOR_RESET}"
+fi
 echo -e "  ${COLOR_CYAN}Check Interval:${COLOR_RESET}    ${COLOR_BOLD}${CHECK_INTERVAL}s${COLOR_RESET} ${COLOR_DIM}(every $((CHECK_INTERVAL / 60)) min)${COLOR_RESET}"
 echo -e "  ${COLOR_CYAN}Slow Threshold:${COLOR_RESET}    ${COLOR_BOLD}${SLOW_THRESHOLD}${COLOR_RESET} ${COLOR_DIM}(immediate if 1)${COLOR_RESET}"
 echo -e "  ${COLOR_CYAN}Concurrent Tests:${COLOR_RESET}  ${COLOR_BOLD}${BENCHMARK_CONCURRENT}${COLOR_RESET}"
@@ -396,13 +400,23 @@ $EXTERNAL_URLS"
     # Sort by speed (descending) and filter URLs
     # Filter 1: speed >= MIN_BENCHMARK_SPEED
     # Filter 2: speed >= average speed
-    # Filter 3: limit to TOP_URLS_COUNT
-    SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk -v min_speed="$MIN_BENCHMARK_SPEED" -v avg_speed="$avg_speed" -v max_count="$TOP_URLS_COUNT" '
-        $1 >= min_speed && $1 >= avg_speed && count < max_count {
-            print $2
-            count++
-        }
-    ')
+    # Filter 3: limit to TOP_URLS_COUNT (if > 0)
+    if [ "$TOP_URLS_COUNT" -eq 0 ]; then
+        # No limit, keep all qualifying URLs
+        SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk -v min_speed="$MIN_BENCHMARK_SPEED" -v avg_speed="$avg_speed" '
+            $1 >= min_speed && $1 >= avg_speed {
+                print $2
+            }
+        ')
+    else
+        # Limit to TOP_URLS_COUNT
+        SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk -v min_speed="$MIN_BENCHMARK_SPEED" -v avg_speed="$avg_speed" -v max_count="$TOP_URLS_COUNT" '
+            $1 >= min_speed && $1 >= avg_speed && count < max_count {
+                print $2
+                count++
+            }
+        ')
+    fi
 
     # Count filtered URLs
     local FILTERED_COUNT=$(echo "$SORTED_URLS" | grep -c .)
@@ -654,13 +668,23 @@ if [ -z "$SORTED_URLS" ]; then
     # Sort by speed (descending) and filter URLs
     # Filter 1: speed >= MIN_BENCHMARK_SPEED
     # Filter 2: speed >= average speed
-    # Filter 3: limit to TOP_URLS_COUNT
-    SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk -v min_speed="$MIN_BENCHMARK_SPEED" -v avg_speed="$avg_speed" -v max_count="$TOP_URLS_COUNT" '
-        $1 >= min_speed && $1 >= avg_speed && count < max_count {
-            print $2
-            count++
-        }
-    ')
+    # Filter 3: limit to TOP_URLS_COUNT (if > 0)
+    if [ "$TOP_URLS_COUNT" -eq 0 ]; then
+        # No limit, keep all qualifying URLs
+        SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk -v min_speed="$MIN_BENCHMARK_SPEED" -v avg_speed="$avg_speed" '
+            $1 >= min_speed && $1 >= avg_speed {
+                print $2
+            }
+        ')
+    else
+        # Limit to TOP_URLS_COUNT
+        SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk -v min_speed="$MIN_BENCHMARK_SPEED" -v avg_speed="$avg_speed" -v max_count="$TOP_URLS_COUNT" '
+            $1 >= min_speed && $1 >= avg_speed && count < max_count {
+                print $2
+                count++
+            }
+        ')
+    fi
 
     # Count filtered URLs
     FILTERED_COUNT=$(echo "$SORTED_URLS" | grep -c .)
