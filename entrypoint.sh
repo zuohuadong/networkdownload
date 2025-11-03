@@ -376,9 +376,29 @@ $EXTERNAL_URLS"
         wait $pid 2>/dev/null
     done
 
+    # Calculate average speed from all tested URLs
+    local avg_speed=0
+    local total_speed=0
+    local valid_count=0
+
+    while IFS= read -r line; do
+        local speed=$(echo "$line" | awk '{print $1}')
+        if [ -n "$speed" ] && [ "$speed" -gt 0 ]; then
+            total_speed=$((total_speed + speed))
+            valid_count=$((valid_count + 1))
+        fi
+    done < "$TEMP_FILE"
+
+    if [ "$valid_count" -gt 0 ]; then
+        avg_speed=$((total_speed / valid_count))
+    fi
+
     # Sort by speed (descending) and filter URLs
-    SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk -v min_speed="$MIN_BENCHMARK_SPEED" -v max_count="$TOP_URLS_COUNT" '
-        $1 >= min_speed && count < max_count {
+    # Filter 1: speed >= MIN_BENCHMARK_SPEED
+    # Filter 2: speed >= average speed
+    # Filter 3: limit to TOP_URLS_COUNT
+    SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk -v min_speed="$MIN_BENCHMARK_SPEED" -v avg_speed="$avg_speed" -v max_count="$TOP_URLS_COUNT" '
+        $1 >= min_speed && $1 >= avg_speed && count < max_count {
             print $2
             count++
         }
@@ -388,7 +408,11 @@ $EXTERNAL_URLS"
     local FILTERED_COUNT=$(echo "$SORTED_URLS" | grep -c .)
 
     if [ "$FILTERED_COUNT" -eq 0 ]; then
-        log_warning "没有找到速度大于 ${MIN_BENCHMARK_SPEED} KB/s 的节点"
+        log_warning "没有找到同时满足以下条件的节点："
+        log_dim "  1. 速度 ≥ ${MIN_BENCHMARK_SPEED} KB/s"
+        log_dim "  2. 速度 ≥ 平均速度 (${avg_speed} KB/s)"
+        log_dim "  → 降低筛选条件，使用速度最快的节点"
+
         # Fallback: use top N fastest URLs regardless of speed
         SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk '{print $2}' | head -n "$TOP_URLS_COUNT")
         FILTERED_COUNT=$(echo "$SORTED_URLS" | grep -c . || echo "1")
@@ -396,6 +420,7 @@ $EXTERNAL_URLS"
 
     # Show filtered results
     log_success "测速完成，保留 ${FILTERED_COUNT} 个最快节点"
+    log_dim "  平均速度: ${avg_speed} KB/s | 过滤阈值: max(${MIN_BENCHMARK_SPEED}, ${avg_speed}) KB/s"
     echo ""
     local index=1
     for url in $SORTED_URLS; do
@@ -413,7 +438,17 @@ $EXTERNAL_URLS"
             speed_color="${COLOR_RED}"
         fi
 
-        printf "  ${COLOR_BOLD}#%d${COLOR_RESET} ${speed_color}%-8s KB/s${COLOR_RESET} ${COLOR_DIM}%s${COLOR_RESET}\n" "$index" "$speed" "$short_url"
+        # Show speed relative to average
+        local speed_indicator=""
+        if [ "$speed" -ge $((avg_speed * 2)) ]; then
+            speed_indicator="${COLOR_GREEN}⚡${COLOR_RESET}"
+        elif [ "$speed" -ge $((avg_speed * 3 / 2)) ]; then
+            speed_indicator="${COLOR_GREEN}↑${COLOR_RESET}"
+        elif [ "$speed" -ge "$avg_speed" ]; then
+            speed_indicator="${COLOR_CYAN}→${COLOR_RESET}"
+        fi
+
+        printf "  ${COLOR_BOLD}#%d${COLOR_RESET} ${speed_color}%-8s KB/s${COLOR_RESET} %s ${COLOR_DIM}%s${COLOR_RESET}\n" "$index" "$speed" "$speed_indicator" "$short_url"
         index=$((index + 1))
     done
     echo ""
@@ -599,10 +634,29 @@ if [ -z "$SORTED_URLS" ]; then
     done
     clear_line
 
-    # Sort by speed (descending) and extract URLs
-    # Filter: only keep URLs faster than MIN_BENCHMARK_SPEED and limit to TOP_URLS_COUNT
-    SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk -v min_speed="$MIN_BENCHMARK_SPEED" -v max_count="$TOP_URLS_COUNT" '
-        $1 >= min_speed && count < max_count {
+    # Calculate average speed from all tested URLs
+    local avg_speed=0
+    local total_speed=0
+    local valid_count=0
+
+    while IFS= read -r line; do
+        local speed=$(echo "$line" | awk '{print $1}')
+        if [ -n "$speed" ] && [ "$speed" -gt 0 ]; then
+            total_speed=$((total_speed + speed))
+            valid_count=$((valid_count + 1))
+        fi
+    done < "$TEMP_FILE"
+
+    if [ "$valid_count" -gt 0 ]; then
+        avg_speed=$((total_speed / valid_count))
+    fi
+
+    # Sort by speed (descending) and filter URLs
+    # Filter 1: speed >= MIN_BENCHMARK_SPEED
+    # Filter 2: speed >= average speed
+    # Filter 3: limit to TOP_URLS_COUNT
+    SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk -v min_speed="$MIN_BENCHMARK_SPEED" -v avg_speed="$avg_speed" -v max_count="$TOP_URLS_COUNT" '
+        $1 >= min_speed && $1 >= avg_speed && count < max_count {
             print $2
             count++
         }
@@ -613,9 +667,12 @@ if [ -z "$SORTED_URLS" ]; then
     TOTAL_TESTED=$(wc -l < "$TEMP_FILE")
 
     if [ "$FILTERED_COUNT" -eq 0 ]; then
-        log_warning "没有找到速度大于 ${MIN_BENCHMARK_SPEED} KB/s 的节点"
-        log_dim "  降低 min_benchmark_speed 阈值或检查网络连接"
-        # Fallback: use all URLs sorted by speed
+        log_warning "没有找到同时满足以下条件的节点："
+        log_dim "  1. 速度 ≥ ${MIN_BENCHMARK_SPEED} KB/s"
+        log_dim "  2. 速度 ≥ 平均速度 (${avg_speed} KB/s)"
+        log_dim "  → 降低筛选条件，使用速度最快的节点"
+
+        # Fallback: use top N fastest URLs regardless of thresholds
         SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk '{print $2}' | head -n "$TOP_URLS_COUNT")
         FILTERED_COUNT=$(echo "$SORTED_URLS" | grep -c . || echo "1")
     fi
@@ -625,7 +682,9 @@ if [ -z "$SORTED_URLS" ]; then
     echo ""
     log_info "测速结果汇总"
     printf "  ${COLOR_CYAN}总测试节点:${COLOR_RESET}   ${COLOR_BOLD}%s 个${COLOR_RESET}\n" "$TOTAL_TESTED"
-    printf "  ${COLOR_CYAN}过滤后保留:${COLOR_RESET}   ${COLOR_BOLD}%s 个${COLOR_RESET} ${COLOR_DIM}(速度 ≥ ${MIN_BENCHMARK_SPEED} KB/s)${COLOR_RESET}\n" "$FILTERED_COUNT"
+    printf "  ${COLOR_CYAN}平均速度:${COLOR_RESET}     ${COLOR_BOLD}%s KB/s${COLOR_RESET}\n" "$avg_speed"
+    printf "  ${COLOR_CYAN}过滤阈值:${COLOR_RESET}     ${COLOR_BOLD}%s KB/s${COLOR_RESET} ${COLOR_DIM}(min_benchmark_speed)${COLOR_RESET}\n" "$MIN_BENCHMARK_SPEED"
+    printf "  ${COLOR_CYAN}过滤后保留:${COLOR_RESET}   ${COLOR_BOLD}%s 个${COLOR_RESET} ${COLOR_DIM}(速度 ≥ max(${MIN_BENCHMARK_SPEED}, ${avg_speed}) KB/s)${COLOR_RESET}\n" "$FILTERED_COUNT"
     echo ""
     log_info "将使用的节点列表"
     echo ""
@@ -645,7 +704,17 @@ if [ -z "$SORTED_URLS" ]; then
             speed_color="${COLOR_RED}"
         fi
 
-        printf "  ${COLOR_BOLD}#%d${COLOR_RESET} ${speed_color}%-8s KB/s${COLOR_RESET} ${COLOR_DIM}%s${COLOR_RESET}\n" "$index" "$speed" "$short_url"
+        # Show speed relative to average
+        local speed_indicator=""
+        if [ "$speed" -ge $((avg_speed * 2)) ]; then
+            speed_indicator="${COLOR_GREEN}⚡${COLOR_RESET}"  # Much faster than average
+        elif [ "$speed" -ge $((avg_speed * 3 / 2)) ]; then
+            speed_indicator="${COLOR_GREEN}↑${COLOR_RESET}"  # Faster than average
+        elif [ "$speed" -ge "$avg_speed" ]; then
+            speed_indicator="${COLOR_CYAN}→${COLOR_RESET}"  # Around average
+        fi
+
+        printf "  ${COLOR_BOLD}#%d${COLOR_RESET} ${speed_color}%-8s KB/s${COLOR_RESET} %s ${COLOR_DIM}%s${COLOR_RESET}\n" "$index" "$speed" "$speed_indicator" "$short_url"
         index=$((index + 1))
     done
     echo ""
