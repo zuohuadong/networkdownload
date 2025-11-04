@@ -97,8 +97,10 @@ clear_line() {
 show_live_stats() {
     local duration=$1
     local url=$2
+    local output_file=$3  # Add output file parameter to read live stats
     local elapsed=0
     local start_time=$(date +%s)
+    local cycle_start_time=$start_time
 
     while [ $elapsed -lt $duration ]; do
         local current_time=$(date +%s)
@@ -112,20 +114,67 @@ show_live_stats() {
             avg_speed=$((TOTAL_BYTES / session_duration / 1024))
         fi
 
-        # Progress bar
+        # Try to get current cycle stats from output file
+        local cycle_bytes=0
+        local current_speed=0
+        if [ -f "$output_file" ]; then
+            case "$TOOL" in
+                oha)
+                    # Parse oha output for current data transferred
+                    local oha_data=$(grep -oP 'Data:\s+[\d.]+\s+[KMGT]?B' "$output_file" 2>/dev/null | tail -1 || echo "")
+                    if [ -n "$oha_data" ]; then
+                        cycle_bytes=$(echo "$oha_data" | awk '{
+                            value=$2
+                            unit=$3
+                            bytes=0
+                            if (unit == "B") bytes = value
+                            else if (unit == "KB") bytes = value * 1024
+                            else if (unit == "MB") bytes = value * 1024 * 1024
+                            else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
+                            else if (unit == "TB") bytes = value * 1024 * 1024 * 1024 * 1024
+                            print int(bytes)
+                        }')
+                    fi
+                    ;;
+                autocannon)
+                    # Parse autocannon output
+                    local autocannon_data=$(grep -oP '\d+\.?\d*\s+[KMGT]?B' "$output_file" 2>/dev/null | tail -1 || echo "")
+                    if [ -n "$autocannon_data" ]; then
+                        cycle_bytes=$(echo "$autocannon_data" | awk '{
+                            value=$1
+                            unit=$2
+                            bytes=0
+                            if (unit == "B") bytes = value
+                            else if (unit == "KB") bytes = value * 1024
+                            else if (unit == "MB") bytes = value * 1024 * 1024
+                            else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
+                            print int(bytes)
+                        }')
+                    fi
+                    ;;
+            esac
+        fi
+
+        # Calculate current speed from cycle data
+        local cycle_duration=$((current_time - cycle_start_time))
+        if [ "$cycle_duration" -gt 0 ] && [ "$cycle_bytes" -gt 0 ]; then
+            current_speed=$((cycle_bytes / cycle_duration / 1024))
+        fi
+
+        # Progress bar using ASCII characters for better compatibility
         local progress=$((elapsed * 100 / duration))
         local bar_width=30
         local filled=$((progress * bar_width / 100))
         local empty=$((bar_width - filled))
-        local bar=$(printf "%${filled}s" | tr ' ' '█')$(printf "%${empty}s" | tr ' ' '░')
+        local bar=$(printf "%${filled}s" | tr ' ' '=')$(printf "%${empty}s" | tr ' ' '-')
 
         # Update line in place - single line with all info
         echo -ne "\r${COLOR_CYAN}📥${COLOR_RESET} "
         echo -ne "${COLOR_BOLD}[${bar}]${COLOR_RESET} ${progress}% | "
         echo -ne "${COLOR_YELLOW}${remaining}s${COLOR_RESET} | "
         echo -ne "${COLOR_GREEN}周期:${DOWNLOAD_CYCLES}${COLOR_RESET} | "
-        echo -ne "${COLOR_MAGENTA}流量:$(format_bytes $TOTAL_BYTES)${COLOR_RESET} | "
-        echo -ne "${COLOR_CYAN}速度:${avg_speed}KB/s${COLOR_RESET} | "
+        echo -ne "${COLOR_MAGENTA}流量:$(format_bytes $((TOTAL_BYTES + cycle_bytes)))${COLOR_RESET} | "
+        echo -ne "${COLOR_CYAN}速度:${current_speed}KB/s${COLOR_RESET} | "
         echo -ne "${COLOR_DIM}#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}\033[K"
 
         sleep 1
@@ -523,7 +572,7 @@ run_download() {
     esac
 
     # Show live progress while download is running
-    show_live_stats "$CHECK_INTERVAL" "$url" &
+    show_live_stats "$CHECK_INTERVAL" "$url" "$output_file" &
     local progress_pid=$!
 
     # Wait for the download to complete
