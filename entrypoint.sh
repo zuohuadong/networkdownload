@@ -361,20 +361,20 @@ benchmark_url() {
         return
     fi
 
-    # Download 5MB and measure speed (reduced from 10MB for lower overhead)
-    local start_time=$(date +%s)
-    local bytes_downloaded=$(curl -s --connect-timeout 5 --max-time 6 -r 0-$BENCHMARK_SIZE "$url" 2>/dev/null | wc -c)
-    local end_time=$(date +%s)
-    local duration=$((end_time - start_time))
+    # Download 5MB and measure speed using curl's built-in speed measurement
+    # Use curl's -w (write-out) to get accurate speed in bytes/second
+    local speed_bytes_per_sec=$(curl -s --connect-timeout 5 --max-time 6 -r 0-$BENCHMARK_SIZE \
+        -w "%{speed_download}" -o /dev/null "$url" 2>/dev/null)
 
-    # Avoid division by zero
-    if [ "$duration" -eq 0 ]; then
-        duration=1
+    # Check if curl succeeded and returned a valid speed
+    if [ -z "$speed_bytes_per_sec" ] || [ "$speed_bytes_per_sec" = "0" ] || [ "$speed_bytes_per_sec" = "0.000" ]; then
+        echo "0"
+        return
     fi
 
-    # Calculate speed in KB/s
-    local speed=$((bytes_downloaded / duration / 1024))
-    echo "$speed"
+    # Convert bytes/sec to KB/sec (using awk for floating point arithmetic)
+    local speed_kb=$(echo "$speed_bytes_per_sec" | awk '{printf "%.0f", $1 / 1024}')
+    echo "$speed_kb"
 }
 
 # Function to benchmark a single URL and save result to file (for concurrent execution)
