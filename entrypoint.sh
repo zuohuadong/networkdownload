@@ -102,16 +102,16 @@ format_bytes() {
 log_progress() {
     # Print progress message that can be updated in place
     # Usage: log_progress "message"
-    echo -ne "\r${COLOR_BLUE}⏳${COLOR_RESET} ${COLOR_BOLD}$1${COLOR_RESET}\033[K"
+    printf "\r%b %b%b\033[K" "${COLOR_BLUE}⏳${COLOR_RESET}" "${COLOR_BOLD}" "$1${COLOR_RESET}"
 }
 
 log_progress_done() {
     # Complete a progress line and move to next line
-    echo -e "\r${COLOR_BOLD_GREEN}✓${COLOR_RESET} ${COLOR_GREEN}$1${COLOR_RESET}\033[K"
+    printf "\r%b %b%b\033[K\n" "${COLOR_BOLD_GREEN}✓${COLOR_RESET}" "${COLOR_GREEN}" "$1${COLOR_RESET}"
 }
 
 clear_line() {
-    echo -ne "\r\033[K"
+    printf "\r\033[K"
 }
 
 # Function to show live download stats (updates in place)
@@ -441,14 +441,18 @@ show_stats() {
         avg_speed=$((total_traffic / session_duration / 1024))  # KB/s
     fi
 
-    # Single line dynamic update
-    echo -ne "\r${COLOR_CYAN}📊${COLOR_RESET} "
-    echo -ne "${COLOR_BOLD}周期:${DOWNLOAD_CYCLES}${COLOR_RESET} | "
-    echo -ne "${COLOR_GREEN}总流量:$(format_bytes $total_traffic)${COLOR_RESET} | "
-    echo -ne "${COLOR_YELLOW}时长:$(format_duration $session_duration)${COLOR_RESET} | "
-    echo -ne "${COLOR_MAGENTA}平均速度:${avg_speed}KB/s${COLOR_RESET} | "
-    echo -ne "${COLOR_CYAN}节点:#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}"
-    echo -ne "\033[K"
+    # Build complete output string first to avoid character truncation
+    local output=""
+    output+="\r${COLOR_CYAN}📊${COLOR_RESET} "
+    output+="${COLOR_BOLD}周期:${DOWNLOAD_CYCLES}${COLOR_RESET} | "
+    output+="${COLOR_GREEN}总流量:$(format_bytes $total_traffic)${COLOR_RESET} | "
+    output+="${COLOR_YELLOW}时长:$(format_duration $session_duration)${COLOR_RESET} | "
+    output+="${COLOR_MAGENTA}平均速度:${avg_speed}KB/s${COLOR_RESET} | "
+    output+="${COLOR_CYAN}节点:#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}"
+    output+="\033[K"
+
+    # Output everything at once using printf for better UTF-8 handling
+    printf "%b" "$output"
 }
 
 # Function to test if a URL is accessible and return failure reason
