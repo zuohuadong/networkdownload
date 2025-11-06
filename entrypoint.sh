@@ -175,36 +175,38 @@ show_live_stats() {
         local month_with_current=$((MONTH_BYTES + total_traffic))
 
         # Multi-line display with better organization
-        echo -ne "\r\033[2K"  # Clear entire line
-        echo -ne "${COLOR_BOLD_CYAN}[下载中]${COLOR_RESET}\n"
+        # Build complete output string first to avoid character truncation
+        local output=""
+        output+="\r\033[2K"  # Clear entire line
+        output+="${COLOR_BOLD_CYAN}[下载中]${COLOR_RESET}\n"
 
         # Line 1: Traffic Statistics
-        echo -ne "\r\033[2K"
-        echo -ne "  ${COLOR_BOLD}流量统计${COLOR_RESET} ${COLOR_GRAY}→${COLOR_RESET} "
-        echo -ne "${COLOR_DIM}历史:${COLOR_RESET}${COLOR_GREEN}$(format_bytes $total_with_history)${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        echo -ne "${COLOR_DIM}本月:${COLOR_RESET}${COLOR_CYAN}$(format_bytes $month_with_current)${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        echo -ne "${COLOR_DIM}本周期:${COLOR_RESET}${COLOR_YELLOW}$(format_bytes $cycle_traffic)${COLOR_RESET}\n"
+        output+="\r\033[2K"
+        output+="  ${COLOR_BOLD}流量统计${COLOR_RESET} ${COLOR_GRAY}→${COLOR_RESET} "
+        output+="${COLOR_DIM}历史:${COLOR_RESET}${COLOR_GREEN}$(format_bytes $total_with_history)${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        output+="${COLOR_DIM}本月:${COLOR_RESET}${COLOR_CYAN}$(format_bytes $month_with_current)${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        output+="${COLOR_DIM}本周期:${COLOR_RESET}${COLOR_YELLOW}$(format_bytes $cycle_traffic)${COLOR_RESET}\n"
 
         # Line 2: Speed and Status
-        echo -ne "\r\033[2K"
-        echo -ne "  ${COLOR_BOLD}运行状态${COLOR_RESET} ${COLOR_GRAY}→${COLOR_RESET} "
-        echo -ne "${COLOR_DIM}周期:${COLOR_RESET}${COLOR_BOLD_CYAN}${DOWNLOAD_CYCLES}${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        echo -ne "${COLOR_DIM}实时:${COLOR_RESET}${COLOR_BOLD_YELLOW}${realtime_speed}KB/s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        echo -ne "${COLOR_DIM}平均:${COLOR_RESET}${COLOR_MAGENTA}${avg_speed}KB/s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        echo -ne "${COLOR_DIM}倒计时:${COLOR_RESET}${COLOR_YELLOW}${remaining}s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        echo -ne "${COLOR_DIM}节点:${COLOR_RESET}${COLOR_DIM}#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}"
+        output+="\r\033[2K"
+        output+="  ${COLOR_BOLD}运行状态${COLOR_RESET} ${COLOR_GRAY}→${COLOR_RESET} "
+        output+="${COLOR_DIM}周期:${COLOR_RESET}${COLOR_BOLD_CYAN}${DOWNLOAD_CYCLES}${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        output+="${COLOR_DIM}实时:${COLOR_RESET}${COLOR_BOLD_YELLOW}${realtime_speed}KB/s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        output+="${COLOR_DIM}平均:${COLOR_RESET}${COLOR_MAGENTA}${avg_speed}KB/s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        output+="${COLOR_DIM}倒计时:${COLOR_RESET}${COLOR_YELLOW}${remaining}s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        output+="${COLOR_DIM}节点:${COLOR_RESET}${COLOR_DIM}#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}"
 
         # Move cursor up 2 lines for next update
-        echo -ne "\033[2A"
+        output+="\033[2A"
+
+        # Output everything at once using printf for better UTF-8 handling
+        printf "%b" "$output"
 
         sleep 1
     done
 
     # Clear the progress lines (3 lines total)
-    echo -ne "\r\033[2K"  # Clear line 1
-    echo -ne "\n\033[2K"  # Clear line 2
-    echo -ne "\n\033[2K"  # Clear line 3
-    echo -ne "\033[3A"    # Move cursor back up
+    printf "%b" "\r\033[2K\n\033[2K\n\033[2K\033[3A"
 }
 
 # Stable large file URLs (100MB+ each)
