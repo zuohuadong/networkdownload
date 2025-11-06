@@ -38,6 +38,7 @@ docker run zuohuadong/networkdownload
 - ✅ **故障自动切换**：当一个 URL 失败时自动切换到下一个可用源
 - ✅ **高稳定性**：不依赖单一资源，避免被限速或失效
 - ✅ **带宽限速**：支持通过环境变量精确控制下载和上传带宽（基于 trickle）
+- ✅ **Webhook 通知**：支持速度过低和无可用节点时发送 Webhook 通知，便于监控和告警
 - ✅ **灵活配置**：支持自定义 URL、线程数、持续时间、速度阈值、带宽限制等参数
 
 
@@ -78,6 +79,11 @@ docker run zuohuadong/networkdownload
 | `speed_window_size` | 滑动窗口大小（保留最近 N 次测速结果） | `3` |
 | `url_update_enabled` | 是否启用运行时 URL 列表自动更新 | `true` |
 | `url_update_interval` | URL 列表自动更新间隔（天） | `7` |
+| `webhook_url` | Webhook 通知地址（留空则禁用通知） | `` |
+| `webhook_enabled` | 是否启用 Webhook 通知 | `true` |
+| `webhook_min_interval` | Webhook 最小发送间隔（秒），避免频繁通知 | `3600` (1小时) |
+| `webhook_notify_slow` | 是否在速度过低时发送通知 | `true` |
+| `webhook_notify_no_nodes` | 是否在无可用节点时发送通知 | `true` |
 | `bandwidth_limit_download` | 下载带宽限制（KB/s），留空则不限制<br>**仅 Debian 版本支持** | `` |
 | `bandwidth_limit_upload` | 上传带宽限制（KB/s），留空则不限制<br>**仅 Debian 版本支持** | `` |
 
@@ -175,6 +181,56 @@ docker run -e bandwidth_limit_download=10240 -e bandwidth_limit_upload=5120 zuoh
 # 结合其他配置使用带宽限速 - Debian 版本
 docker run -e th=10 -e bandwidth_limit_download=20480 -e min_speed=500 zuohuadong/networkdownload:latest
 ```
+
+### Webhook 通知
+
+```bash
+# 启用 Webhook 通知（当速度过低或无可用节点时发送通知）
+docker run -e webhook_url=https://your-webhook-endpoint.com/notify zuohuadong/networkdownload
+
+# 自定义 Webhook 配置（最小通知间隔 30 分钟）
+docker run -e webhook_url=https://your-webhook-endpoint.com/notify \
+  -e webhook_min_interval=1800 \
+  zuohuadong/networkdownload
+
+# 只在无可用节点时通知，不在速度过低时通知
+docker run -e webhook_url=https://your-webhook-endpoint.com/notify \
+  -e webhook_notify_slow=false \
+  -e webhook_notify_no_nodes=true \
+  zuohuadong/networkdownload
+
+# 结合速度监控使用 Webhook 通知
+docker run -e webhook_url=https://your-webhook-endpoint.com/notify \
+  -e min_speed=500 \
+  -e slow_threshold=3 \
+  -e webhook_min_interval=3600 \
+  zuohuadong/networkdownload
+
+# 禁用 Webhook 通知
+docker run -e webhook_enabled=false zuohuadong/networkdownload
+```
+
+**Webhook JSON 数据格式**：
+```json
+{
+  "title": "下载速度过慢警告",
+  "message": "节点速度持续低于阈值 (平均 180 KB/s < 200 KB/s)，已连续检测 2 次。正在尝试切换节点...",
+  "level": "warning",
+  "hostname": "container-hostname",
+  "timestamp": "2025-11-06T12:34:56Z",
+  "stats": {
+    "total_traffic": "15.23 GB",
+    "avg_speed": "5420 KB/s",
+    "session_duration": "02:45:30",
+    "download_cycles": 33,
+    "current_node": "2/5"
+  }
+}
+```
+
+**支持的通知类型**：
+- `warning`：速度过低警告（当平均速度低于 `min_speed` 阈值时）
+- `error`：无可用节点警告（当所有节点都不满足速度要求时）
 
 ## 版本说明
 
@@ -401,6 +457,55 @@ docker run -e url_custom=https://your-cdn.com/file.bin zuohuadong/networkdownloa
 ```
 
 也可以修改 `entrypoint.sh` 中的 `URLS` 变量添加更多备用 URL。
+
+### 如何配置 Webhook 通知？
+
+Webhook 通知功能可以帮助你实时监控下载状态，在出现异常时及时收到告警。
+
+**支持的 Webhook 服务**：
+- 任何接受 JSON POST 请求的 Webhook 服务
+- 企业通讯工具（钉钉、企业微信、飞书等，需要配置 Webhook 转换）
+- 自定义监控系统或告警平台
+
+**配置示例**：
+
+```bash
+# 1. 基本配置（最简单）
+docker run -e webhook_url=https://your-webhook.com/notify zuohuadong/networkdownload
+
+# 2. 生产环境配置（推荐）
+docker run \
+  -e webhook_url=https://your-webhook.com/notify \
+  -e webhook_min_interval=3600 \
+  -e webhook_notify_slow=true \
+  -e webhook_notify_no_nodes=true \
+  -e min_speed=500 \
+  -e slow_threshold=3 \
+  zuohuadong/networkdownload
+
+# 3. 仅关键告警（只在无可用节点时通知）
+docker run \
+  -e webhook_url=https://your-webhook.com/notify \
+  -e webhook_notify_slow=false \
+  -e webhook_notify_no_nodes=true \
+  zuohuadong/networkdownload
+```
+
+**通知触发条件**：
+1. **速度过低**（`webhook_notify_slow=true`）：
+   - 当滑动窗口平均速度连续低于 `min_speed` 阈值
+   - 达到 `slow_threshold` 次数后触发通知
+   - 示例：min_speed=200, slow_threshold=2 时，连续 2 次检测速度低于 200 KB/s
+
+2. **无可用节点**（`webhook_notify_no_nodes=true`）：
+   - 初始测速时没有找到满足条件的节点
+   - 运行时重新测速后所有节点都不满足条件
+   - 示例：所有节点速度都低于 `min_benchmark_speed` 或平均速度
+
+**频率限制**：
+- 使用 `webhook_min_interval` 避免通知轰炸
+- 默认 3600 秒（1 小时）最多发送一次
+- 适合长期运行的监控场景
 
 ### 为什么看到"URL 更新脚本不存在"的警告？
 

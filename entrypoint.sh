@@ -120,6 +120,7 @@ show_live_stats() {
     local url=$2
     local elapsed=0
     local start_time=$(date +%s)
+    local first_display=true
 
     # Variables for real-time speed calculation
     local last_bytes=$(get_network_bytes "$NETWORK_INTERFACE")
@@ -174,39 +175,38 @@ show_live_stats() {
         local total_with_history=$((TOTAL_HISTORICAL_BYTES + total_traffic))
         local month_with_current=$((MONTH_BYTES + total_traffic))
 
+        # For first display, print 3 lines to reserve space
+        if [ "$first_display" = true ]; then
+            printf "\n\n\n"
+            first_display=false
+        fi
+
         # Multi-line display with better organization
-        # Build complete output string first to avoid character truncation
-        local output=""
-        output+="\r\033[2K"  # Clear entire line
-        output+="${COLOR_BOLD_CYAN}[下载中]${COLOR_RESET}\n"
+        # Move cursor up 3 lines, then update each line
+        printf "\033[3A"
 
-        # Line 1: Traffic Statistics
-        output+="\r\033[2K"
-        output+="  ${COLOR_BOLD}流量统计${COLOR_RESET} ${COLOR_GRAY}→${COLOR_RESET} "
-        output+="${COLOR_DIM}历史:${COLOR_RESET}${COLOR_GREEN}$(format_bytes $total_with_history)${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        output+="${COLOR_DIM}本月:${COLOR_RESET}${COLOR_CYAN}$(format_bytes $month_with_current)${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        output+="${COLOR_DIM}本周期:${COLOR_RESET}${COLOR_YELLOW}$(format_bytes $cycle_traffic)${COLOR_RESET}\n"
+        # Line 1: Header
+        printf "\r\033[2K${COLOR_BOLD_CYAN}[下载中]${COLOR_RESET}\n"
 
-        # Line 2: Speed and Status
-        output+="\r\033[2K"
-        output+="  ${COLOR_BOLD}运行状态${COLOR_RESET} ${COLOR_GRAY}→${COLOR_RESET} "
-        output+="${COLOR_DIM}周期:${COLOR_RESET}${COLOR_BOLD_CYAN}${DOWNLOAD_CYCLES}${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        output+="${COLOR_DIM}实时:${COLOR_RESET}${COLOR_BOLD_YELLOW}${realtime_speed}KB/s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        output+="${COLOR_DIM}平均:${COLOR_RESET}${COLOR_MAGENTA}${avg_speed}KB/s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        output+="${COLOR_DIM}倒计时:${COLOR_RESET}${COLOR_YELLOW}${remaining}s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
-        output+="${COLOR_DIM}节点:${COLOR_RESET}${COLOR_DIM}#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}"
+        # Line 2: Traffic Statistics
+        printf "\r\033[2K  ${COLOR_BOLD}流量统计${COLOR_RESET} ${COLOR_GRAY}→${COLOR_RESET} "
+        printf "${COLOR_DIM}历史:${COLOR_RESET}${COLOR_GREEN}$(format_bytes $total_with_history)${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        printf "${COLOR_DIM}本月:${COLOR_RESET}${COLOR_CYAN}$(format_bytes $month_with_current)${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        printf "${COLOR_DIM}本周期:${COLOR_RESET}${COLOR_YELLOW}$(format_bytes $cycle_traffic)${COLOR_RESET}\n"
 
-        # Move cursor up 2 lines for next update
-        output+="\033[2A"
-
-        # Output everything at once using printf for better UTF-8 handling
-        printf "%b" "$output"
+        # Line 3: Speed and Status
+        printf "\r\033[2K  ${COLOR_BOLD}运行状态${COLOR_RESET} ${COLOR_GRAY}→${COLOR_RESET} "
+        printf "${COLOR_DIM}周期:${COLOR_RESET}${COLOR_BOLD_CYAN}${DOWNLOAD_CYCLES}${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        printf "${COLOR_DIM}实时:${COLOR_RESET}${COLOR_BOLD_YELLOW}${realtime_speed}KB/s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        printf "${COLOR_DIM}平均:${COLOR_RESET}${COLOR_MAGENTA}${avg_speed}KB/s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        printf "${COLOR_DIM}倒计时:${COLOR_RESET}${COLOR_YELLOW}${remaining}s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        printf "${COLOR_DIM}节点:${COLOR_RESET}${COLOR_DIM}#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}"
 
         sleep 1
     done
 
-    # Clear the progress lines (3 lines total)
-    printf "%b" "\r\033[2K\n\033[2K\n\033[2K\033[3A"
+    # Clear the 3 lines
+    printf "\033[3A\r\033[2K\n\033[2K\n\033[2K"
 }
 
 # Stable large file URLs (100MB+ each)
@@ -262,6 +262,14 @@ MAX_DISPLAY_URLS=${max_display_urls:-10}  # Maximum number of URLs to display in
 SPEED_WINDOW_SIZE=${speed_window_size:-3}  # Keep last N speed measurements (default 3)
 SPEED_WINDOW_ENABLED=${speed_window_enabled:-true}  # Enable sliding window averaging (default true)
 declare -A url_speed_history  # Associative array to store speed history for each URL
+
+# Webhook notification settings
+WEBHOOK_URL=${webhook_url:-}  # Webhook URL for notifications (empty = disabled)
+WEBHOOK_ENABLED=${webhook_enabled:-true}  # Enable webhook notifications (default true)
+WEBHOOK_MIN_INTERVAL=${webhook_min_interval:-3600}  # Minimum interval between notifications in seconds (default 1 hour)
+WEBHOOK_LAST_SENT=0  # Timestamp of last webhook sent
+WEBHOOK_NOTIFY_SLOW=${webhook_notify_slow:-true}  # Notify when speed is too slow (default true)
+WEBHOOK_NOTIFY_NO_NODES=${webhook_notify_no_nodes:-true}  # Notify when no available nodes (default true)
 
 # Traffic statistics variables
 SESSION_START=$(date +%s)  # Session start time (会话开始时间)
@@ -412,6 +420,16 @@ else
     log_info "Bandwidth Limiting: ${COLOR_DIM}Disabled${COLOR_RESET}"
 fi
 echo ""
+if [ -n "$WEBHOOK_URL" ] && [ "$WEBHOOK_ENABLED" = "true" ]; then
+    log_info "Webhook Notifications: ${COLOR_BOLD_GREEN}Enabled${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Webhook URL:${COLOR_RESET}      ${COLOR_DIM}${WEBHOOK_URL:0:50}...${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Min Interval:${COLOR_RESET}     ${COLOR_BOLD}$((WEBHOOK_MIN_INTERVAL / 60)) min${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Notify Slow Speed:${COLOR_RESET} ${COLOR_BOLD}${WEBHOOK_NOTIFY_SLOW}${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Notify No Nodes:${COLOR_RESET}   ${COLOR_BOLD}${WEBHOOK_NOTIFY_NO_NODES}${COLOR_RESET}"
+else
+    log_info "Webhook Notifications: ${COLOR_DIM}Disabled${COLOR_RESET}"
+fi
+echo ""
 log_info "Traffic Statistics"
 echo -e "  ${COLOR_CYAN}Historical Total:${COLOR_RESET} ${COLOR_BOLD}$(format_bytes $TOTAL_HISTORICAL_BYTES)${COLOR_RESET}"
 echo -e "  ${COLOR_CYAN}Month Total:${COLOR_RESET}      ${COLOR_BOLD}$(format_bytes $MONTH_BYTES)${COLOR_RESET} ${COLOR_DIM}(${CURRENT_MONTH})${COLOR_RESET}"
@@ -425,6 +443,78 @@ format_duration() {
     local minutes=$(((seconds % 3600) / 60))
     local secs=$((seconds % 60))
     printf "%02d:%02d:%02d" $hours $minutes $secs
+}
+
+# Function to send webhook notification
+send_webhook() {
+    local title=$1
+    local message=$2
+    local level=${3:-warning}  # info, warning, error
+
+    # Check if webhook is enabled and configured
+    if [ -z "$WEBHOOK_URL" ] || [ "$WEBHOOK_ENABLED" != "true" ]; then
+        return 0
+    fi
+
+    # Check if enough time has passed since last notification
+    local current_time=$(date +%s)
+    local time_since_last=$((current_time - WEBHOOK_LAST_SENT))
+
+    if [ "$time_since_last" -lt "$WEBHOOK_MIN_INTERVAL" ]; then
+        log_dim "  [Webhook] 跳过通知（距离上次通知仅 $((time_since_last / 60)) 分钟，最小间隔 $((WEBHOOK_MIN_INTERVAL / 60)) 分钟）"
+        return 0
+    fi
+
+    # Get current traffic stats
+    local current_bytes=$(get_network_bytes "$NETWORK_INTERFACE")
+    local total_traffic=$((current_bytes - BASELINE_BYTES))
+    local session_duration=$((current_time - SESSION_START))
+    local avg_speed=0
+    if [ "$session_duration" -gt 0 ] && [ "$total_traffic" -gt 0 ]; then
+        avg_speed=$((total_traffic / session_duration / 1024))
+    fi
+
+    # Prepare JSON payload
+    local hostname=$(hostname)
+    local timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+    # Build JSON payload (compatible with common webhook formats)
+    local json_payload=$(cat <<EOF
+{
+  "title": "${title}",
+  "message": "${message}",
+  "level": "${level}",
+  "hostname": "${hostname}",
+  "timestamp": "${timestamp}",
+  "stats": {
+    "total_traffic": "$(format_bytes $total_traffic)",
+    "avg_speed": "${avg_speed} KB/s",
+    "session_duration": "$(format_duration $session_duration)",
+    "download_cycles": ${DOWNLOAD_CYCLES},
+    "current_node": "${CURRENT_URL_INDEX}/${TOTAL_URLS}"
+  }
+}
+EOF
+)
+
+    # Send webhook with curl
+    if command -v curl >/dev/null 2>&1; then
+        local response=$(curl -s -X POST -H "Content-Type: application/json" \
+            -d "$json_payload" \
+            --connect-timeout 5 --max-time 10 \
+            "$WEBHOOK_URL" 2>&1)
+
+        local exit_code=$?
+
+        if [ $exit_code -eq 0 ]; then
+            log_success "Webhook 通知已发送: ${title}"
+            WEBHOOK_LAST_SENT=$current_time
+        else
+            log_warning "Webhook 发送失败 (exit code: $exit_code)"
+        fi
+    else
+        log_warning "Webhook 发送失败: curl 命令不可用"
+    fi
 }
 
 # Function to display traffic statistics (dynamic, in-place update)
@@ -655,6 +745,14 @@ $EXTERNAL_URLS"
         log_dim "  2. 速度 ≥ 平均速度 (${avg_speed} KB/s)"
         log_dim "  → 降低筛选条件，使用速度最快的节点"
 
+        # Send webhook notification for no available nodes
+        if [ "$WEBHOOK_NOTIFY_NO_NODES" = "true" ]; then
+            send_webhook \
+                "无可用节点警告" \
+                "没有找到满足速度要求的节点 (≥ ${MIN_BENCHMARK_SPEED} KB/s 且 ≥ 平均速度 ${avg_speed} KB/s)。将使用速度最快的节点..." \
+                "error"
+        fi
+
         # Fallback: use top N fastest URLs regardless of speed
         SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk '{print $2}' | head -n "$TOP_URLS_COUNT")
         FILTERED_COUNT=$(echo "$SORTED_URLS" | grep -c . || echo "1")
@@ -855,6 +953,14 @@ check_current_speed() {
                 log_warning "节点速度过慢 (${current_speed} KB/s < ${MIN_SPEED} KB/s，连续 ${SLOW_COUNT} 次)"
             fi
 
+            # Send webhook notification for slow speed
+            if [ "$WEBHOOK_NOTIFY_SLOW" = "true" ]; then
+                send_webhook \
+                    "下载速度过慢警告" \
+                    "节点速度持续低于阈值 (平均 ${avg_speed} KB/s < ${MIN_SPEED} KB/s)，已连续检测 ${SLOW_COUNT} 次。正在尝试切换节点..." \
+                    "warning"
+            fi
+
             # Count remaining URLs in list
             local url_count=$(echo "$URL_LIST" | wc -w)
 
@@ -973,6 +1079,14 @@ if [ -z "$SORTED_URLS" ]; then
         log_dim "  1. 速度 ≥ ${MIN_BENCHMARK_SPEED} KB/s"
         log_dim "  2. 速度 ≥ 平均速度 (${avg_speed} KB/s)"
         log_dim "  → 降低筛选条件，使用速度最快的节点"
+
+        # Send webhook notification for no available nodes at startup
+        if [ "$WEBHOOK_NOTIFY_NO_NODES" = "true" ]; then
+            send_webhook \
+                "启动警告：无满足条件的节点" \
+                "初始测速完成，但没有找到满足速度要求的节点 (≥ ${MIN_BENCHMARK_SPEED} KB/s 且 ≥ 平均速度 ${avg_speed} KB/s)。将使用速度最快的节点..." \
+                "warning"
+        fi
 
         # Fallback: use top N fastest URLs regardless of thresholds
         SORTED_URLS=$(sort -rn "$TEMP_FILE" | awk '{print $2}' | head -n "$TOP_URLS_COUNT")
