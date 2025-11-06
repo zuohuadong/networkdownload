@@ -180,7 +180,7 @@ SLOW_THRESHOLD=${slow_threshold:-1}  # Number of consecutive slow detections bef
 SLOW_COUNT=0  # Counter for consecutive slow speed detections
 BENCHMARK_SIZE=5242880  # 5MB for quick speed check (reduced from 10MB)
 BENCHMARK_CONCURRENT=${benchmark_concurrent:-5}  # Concurrent benchmark threads (default 5)
-MIN_BENCHMARK_SPEED=${min_benchmark_speed:-500}  # Filter out URLs slower than this in KB/s (default 500 KB/s)
+MIN_BENCHMARK_SPEED=${min_benchmark_speed:-200}  # Filter out URLs slower than this in KB/s (default 200 KB/s)
 TOP_URLS_COUNT=${top_urls:-0}  # Number of fastest URLs to keep (default 0 = no limit, keep all qualifying URLs)
 MAX_DISPLAY_URLS=${max_display_urls:-10}  # Maximum number of URLs to display in list (default 10, 0 = show all)
 

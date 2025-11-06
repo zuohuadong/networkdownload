@@ -68,7 +68,7 @@ docker run zuohuadong/networkdownload
 | `min_speed` | 最低速度阈值（KB/s），低于此值将触发慢速计数 | `200` |
 | `check_interval` | 速度检查间隔（秒），建议 300-600 秒 | `300` |
 | `slow_threshold` | 慢速检测次数阈值，达到后切换节点 | `1` (立即切换) |
-| `min_benchmark_speed` | 过滤阈值（KB/s），启动时过滤掉速度低于此值的节点 | `500` |
+| `min_benchmark_speed` | 过滤阈值（KB/s），启动时过滤掉速度低于此值的节点 | `200` |
 | `top_urls` | 保留最快的 N 个节点用于轮换（0=不限制，保留所有符合条件的节点） | `0` (不限制) |
 | `benchmark_concurrent` | 并发测速线程数，加快启动速度 | `5` |
 | `max_display_urls` | 节点列表最大显示数量（0=显示全部） | `10` |
@@ -183,7 +183,7 @@ docker run -e th=10 -e bandwidth_limit_download=20480 -e min_speed=500 zuohuadon
 
 1. **并发测速**：容器启动时，并发测试所有内置 URL（默认 5 个并发，下载 5MB 数据测速）
 2. **智能过滤**：双重过滤机制，确保只使用真正快速的节点：
-   - 过滤条件 1：速度 ≥ min_benchmark_speed（默认 500 KB/s）
+   - 过滤条件 1：速度 ≥ min_benchmark_speed（默认 200 KB/s）
    - 过滤条件 2：速度 ≥ 所有节点的平均速度
    - 保留所有同时满足两个条件的节点（默认不限制数量）
    - 可通过 `top_urls` 参数限制保留节点数量
@@ -300,7 +300,7 @@ docker run -e ui="" zuohuadong/networkdownload:bun
 - 下载 5MB 数据样本测试实际速度（低开销）
 - **计算平均速度**：统计所有节点的平均速度作为基准
 - **双重智能过滤**：
-  - 条件 1：速度 ≥ min_benchmark_speed（默认 500 KB/s）
+  - 条件 1：速度 ≥ min_benchmark_speed（默认 200 KB/s）
   - 条件 2：速度 ≥ 平均速度
   - 只保留同时满足两个条件的节点
 - **智能保留节点**：默认保留所有符合条件的快速节点，可通过 `top_urls` 限制数量
@@ -324,7 +324,7 @@ docker run -e ui="" zuohuadong/networkdownload:bun
   节点 7-10: < 200 KB/s (慢速)
 
 平均速度: 1200 KB/s
-过滤阈值: max(500, 1200) = 1200 KB/s
+过滤阈值: max(200, 1200) = 1200 KB/s
 
 ✓ 保留节点 1、2、3（速度 ≥ 1200 KB/s）
 ✗ 过滤节点 4-10（速度 < 1200 KB/s 或 < 平均值）
