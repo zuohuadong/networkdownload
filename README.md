@@ -32,7 +32,7 @@ docker run zuohuadong/networkdownload
 - ✅ **动态速度监控**：每 5 分钟检查下载速度，低于阈值时立即切换节点
 - ✅ **智能节点过滤**：自动过滤慢速节点，只使用最快的几个节点
 - ✅ **多 URL 自动切换**：内置多个稳定的测速文件源（Cloudflare、OVH、Tele2 等）
-- ✅ **自动更新 URL 列表**：通过 CI 定期从 [llxhq](https://github.com/uu6/llxhq) 获取最新刷流 URL
+- ✅ **自动更新 URL 列表**：Docker 构建时从 [llxhq](https://github.com/uu6/llxhq) 获取最新刷流 URL，并支持运行时定期更新
 - ✅ **故障自动切换**：当一个 URL 失败时自动切换到下一个可用源
 - ✅ **高稳定性**：不依赖单一资源，避免被限速或失效
 - ✅ **带宽限速**：支持通过环境变量精确控制下载和上传带宽（基于 trickle）
@@ -71,6 +71,8 @@ docker run zuohuadong/networkdownload
 | `min_benchmark_speed` | 过滤阈值（KB/s），启动时过滤掉速度低于此值的节点 | `500` |
 | `top_urls` | 保留最快的 N 个节点用于轮换（0=不限制，保留所有符合条件的节点） | `0` (不限制) |
 | `benchmark_concurrent` | 并发测速线程数，加快启动速度 | `5` |
+| `url_update_enabled` | 是否启用运行时 URL 列表自动更新 | `true` |
+| `url_update_interval` | URL 列表自动更新间隔（天） | `7` |
 | `bandwidth_limit_download` | 下载带宽限制（KB/s），留空则不限制<br>**仅 Debian 版本支持** | `` |
 | `bandwidth_limit_upload` | 上传带宽限制（KB/s），留空则不限制<br>**仅 Debian 版本支持** | `` |
 
@@ -167,7 +169,7 @@ docker run -e th=10 -e bandwidth_limit_download=20480 -e min_speed=500 zuohuadon
 |---------|------|----------|------|
 | `latest` / `rust` / `debian` | oha | amd64, arm64, arm/v7 | 占用内存小，性能好，**支持带宽限速** |
 | `alpine` | oha | amd64, arm64 | 体积最小（基于 Alpine），**不支持带宽限速** |
-| `bun` / `nodejs` | autocannon | amd64, arm64 | 兼容性好，使用 bun 优化，**不支持带宽限速** |
+| `bun` | autocannon | amd64, arm64 | 兼容性好，使用 bun 优化，**不支持带宽限速** |
 
 ### 多架构支持
 
@@ -211,15 +213,16 @@ docker build -t networkdownload:bun -f Dockerfile-bun .
 
 本项目使用 GitHub Actions 实现自动构建和发布：
 
-- **触发条件**：推送到 `main` 分支或手动触发
+- **触发条件**：推送到 `main` 分支、手动触发或每周定时触发
 - **构建平台**：使用 Docker Buildx 进行多架构构建
 - **发布目标**：自动推送到 [Docker Hub](https://hub.docker.com/r/zuohuadong/networkdownload)
 - **构建缓存**：使用 GitHub Actions Cache 加速构建
+- **URL 更新**：每次构建时自动从 [llxhq](https://github.com/uu6/llxhq) 获取最新刷流 URL
 
-每次推送后，GitHub Actions 会自动构建并推送以下标签：
+每次构建后，GitHub Actions 会自动推送以下标签：
 - `latest`, `rust`, `debian`, `debian-时间戳`
 - `alpine`, `alpine-时间戳`
-- `bun`, `nodejs`, `bun-时间戳`
+- `bun`, `bun-时间戳`
 
 查看构建状态：[GitHub Actions](https://github.com/zuohuadong/networkdownload/actions)
 
@@ -254,7 +257,7 @@ docker run -e bandwidth_limit_download=10240 -e bandwidth_limit_upload=5120 zuoh
 **版本限制说明**：
 - ✅ **Debian 版本** (`latest`, `rust`, `debian`)：支持带宽限速
 - ❌ **Alpine 版本** (`alpine`)：不支持（Alpine Linux 软件库中没有 trickle）
-- ❌ **Bun 版本** (`bun`, `nodejs`)：不支持（基于 Alpine）
+- ❌ **Bun 版本** (`bun`)：不支持（基于 Alpine）
 
 **其他版本的替代方法**：
 
