@@ -185,7 +185,14 @@ SESSION_START=$(date +%s)  # Session start time (会话开始时间)
 DOWNLOAD_CYCLES=0  # Number of completed download cycles (下载周期数)
 
 # Get network interface name (usually eth0, could be ens33, etc.)
-NETWORK_INTERFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '/dev/ {for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' || echo "eth0")
+# Try multiple methods to get the default network interface
+NETWORK_INTERFACE=$(ip route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p' | head -1)
+if [ -z "$NETWORK_INTERFACE" ]; then
+    NETWORK_INTERFACE=$(ip route show default 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p' | head -1)
+fi
+if [ -z "$NETWORK_INTERFACE" ]; then
+    NETWORK_INTERFACE="eth0"
+fi
 
 # Get initial network traffic baseline from /proc/net/dev
 get_network_bytes() {

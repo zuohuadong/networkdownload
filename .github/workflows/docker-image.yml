@@ -5,6 +5,9 @@ on:
     branches:
       - main
   workflow_dispatch:
+  schedule:
+    # 每周一凌晨 2:00 (UTC) 运行 = 北京时间上午 10:00
+    - cron: '0 2 * * 1'
 
 jobs:
   docker:

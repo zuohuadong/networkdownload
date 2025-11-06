@@ -17,8 +17,8 @@ LABEL name="${PACKAGE}" \
     licenses="MIT License" \
     source="https://github.com/${PACKAGE}"
 
-# 安装 curl、trickle（带宽限制工具）和 bash
-RUN apt-get update && apt-get install -y curl trickle bash && rm -rf /var/lib/apt/lists/*
+# 安装 curl、trickle（带宽限制工具）、bash 和 iproute2（提供 ip 命令）
+RUN apt-get update && apt-get install -y curl trickle bash iproute2 && rm -rf /var/lib/apt/lists/*
 
 # 从构建阶段复制 oha 二进制文件
 COPY --from=builder /oha /bin/oha
@@ -36,13 +36,6 @@ RUN chmod +x /tmp/fetch_urls.sh && \
     cd /app && \
     /tmp/fetch_urls.sh && \
     rm /tmp/fetch_urls.sh
-
-# 如果 fetch_urls.sh 失败，使用仓库中的备份文件
-COPY urls/external_urls.txt /tmp/external_urls.txt.backup
-RUN if [ ! -f /app/urls/external_urls.txt ] || [ ! -s /app/urls/external_urls.txt ]; then \
-        cp /tmp/external_urls.txt.backup /app/urls/external_urls.txt; \
-    fi && \
-    rm /tmp/external_urls.txt.backup
 
 # 设置默认环境变量
 ENV th=2
