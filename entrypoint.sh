@@ -97,81 +97,30 @@ clear_line() {
 show_live_stats() {
     local duration=$1
     local url=$2
-    local output_file=$3  # Add output file parameter to read live stats
     local elapsed=0
     local start_time=$(date +%s)
-    local cycle_start_time=$start_time
 
     while [ $elapsed -lt $duration ]; do
         local current_time=$(date +%s)
         elapsed=$((current_time - start_time))
         local remaining=$((duration - elapsed))
 
+        # Get current network traffic from system
+        local current_bytes=$(get_network_bytes "$NETWORK_INTERFACE")
+        local total_traffic=$((current_bytes - BASELINE_BYTES))
+
         # Calculate session stats
         local session_duration=$((current_time - SESSION_START))
         local avg_speed=0
-        if [ "$session_duration" -gt 0 ]; then
-            avg_speed=$((TOTAL_BYTES / session_duration / 1024))
-        fi
-
-        # Try to get current cycle stats from output file
-        local cycle_bytes=0
-        local current_speed=0
-        if [ -f "$output_file" ]; then
-            case "$TOOL" in
-                oha)
-                    # Parse oha output for current data transferred
-                    # BusyBox grep doesn't support -P, use basic grep + awk
-                    local oha_data=$(grep 'Data:' "$output_file" 2>/dev/null | tail -1 || echo "")
-                    if [ -n "$oha_data" ]; then
-                        cycle_bytes=$(echo "$oha_data" | awk '{
-                            for(i=1; i<=NF; i++) {
-                                if($i == "Data:") {
-                                    value=$(i+1)
-                                    unit=$(i+2)
-                                    bytes=0
-                                    if (unit == "B") bytes = value
-                                    else if (unit == "KB") bytes = value * 1024
-                                    else if (unit == "MB") bytes = value * 1024 * 1024
-                                    else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
-                                    else if (unit == "TB") bytes = value * 1024 * 1024 * 1024 * 1024
-                                    print int(bytes)
-                                    exit
-                                }
-                            }
-                        }')
-                    fi
-                    ;;
-                autocannon)
-                    # Parse autocannon output
-                    # BusyBox grep doesn't support -P, use awk to find bytes pattern
-                    cycle_bytes=$(awk '/[0-9.]+ [KMGT]?B/ {
-                        value=$1
-                        unit=$2
-                        bytes=0
-                        if (unit == "B") bytes = value
-                        else if (unit == "KB") bytes = value * 1024
-                        else if (unit == "MB") bytes = value * 1024 * 1024
-                        else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
-                        print int(bytes)
-                    }' "$output_file" 2>/dev/null | tail -1 || echo "0")
-                    ;;
-            esac
-        fi
-
-        # Calculate current speed from cycle data
-        local cycle_duration=$((current_time - cycle_start_time))
-        if [ "$cycle_duration" -gt 0 ] && [ "$cycle_bytes" -gt 0 ]; then
-            current_speed=$((cycle_bytes / cycle_duration / 1024))
+        if [ "$session_duration" -gt 0 ] && [ "$total_traffic" -gt 0 ]; then
+            avg_speed=$((total_traffic / session_duration / 1024))
         fi
 
         # Simplified display - only show essential info
-        local total_traffic=$((TOTAL_BYTES + cycle_bytes))
-
-        # Update line in place - simple single line
         echo -ne "\r${COLOR_CYAN}[下载中]${COLOR_RESET} "
-        echo -ne "${COLOR_GREEN}周期:${DOWNLOAD_CYCLES}${COLOR_RESET} | "
         echo -ne "${COLOR_BOLD}总流量:$(format_bytes $total_traffic)${COLOR_RESET} | "
+        echo -ne "${COLOR_GREEN}周期:${DOWNLOAD_CYCLES}${COLOR_RESET} | "
+        echo -ne "${COLOR_MAGENTA}平均速度:${avg_speed}KB/s${COLOR_RESET} | "
         echo -ne "${COLOR_YELLOW}倒计时:${remaining}s${COLOR_RESET} | "
         echo -ne "${COLOR_DIM}节点:#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}\033[K"
 
@@ -232,9 +181,20 @@ TOP_URLS_COUNT=${top_urls:-0}  # Number of fastest URLs to keep (default 0 = no 
 MAX_DISPLAY_URLS=${max_display_urls:-10}  # Maximum number of URLs to display in list (default 10, 0 = show all)
 
 # Traffic statistics variables
-TOTAL_BYTES=0  # Total bytes downloaded (累计流量)
 SESSION_START=$(date +%s)  # Session start time (会话开始时间)
 DOWNLOAD_CYCLES=0  # Number of completed download cycles (下载周期数)
+
+# Get network interface name (usually eth0, could be ens33, etc.)
+NETWORK_INTERFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '/dev/ {for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' || echo "eth0")
+
+# Get initial network traffic baseline from /proc/net/dev
+get_network_bytes() {
+    local interface=$1
+    # Read received bytes (2nd column) from /proc/net/dev
+    awk -v iface="$interface:" '$1 == iface {print $2}' /proc/net/dev 2>/dev/null || echo "0"
+}
+
+BASELINE_BYTES=$(get_network_bytes "$NETWORK_INTERFACE")
 
 # Bandwidth limiting settings (using trickle)
 BANDWIDTH_LIMIT_DOWNLOAD=${bandwidth_limit_download:-}  # Download bandwidth limit in KB/s (empty = no limit)
@@ -253,6 +213,7 @@ echo -e "  ${COLOR_CYAN}Tool:${COLOR_RESET}              ${COLOR_BOLD}$TOOL${COL
 echo -e "  ${COLOR_CYAN}Threads:${COLOR_RESET}           ${COLOR_BOLD}$THREADS${COLOR_RESET}"
 echo -e "  ${COLOR_CYAN}Duration:${COLOR_RESET}          ${COLOR_BOLD}$DURATION${COLOR_RESET}"
 echo -e "  ${COLOR_CYAN}Available URLs:${COLOR_RESET}    ${COLOR_BOLD}$URL_COUNT${COLOR_RESET}"
+echo -e "  ${COLOR_CYAN}Network Interface:${COLOR_RESET} ${COLOR_BOLD}${NETWORK_INTERFACE}${COLOR_RESET} ${COLOR_DIM}(监控流量统计)${COLOR_RESET}"
 echo ""
 log_info "Speed Thresholds"
 echo -e "  ${COLOR_CYAN}Min Speed:${COLOR_RESET}         ${COLOR_BOLD}${MIN_SPEED} KB/s${COLOR_RESET}"
@@ -316,21 +277,22 @@ format_duration() {
 show_stats() {
     local current_time=$(date +%s)
     local session_duration=$((current_time - SESSION_START))
+
+    # Get current network traffic from system
+    local current_bytes=$(get_network_bytes "$NETWORK_INTERFACE")
+    local total_traffic=$((current_bytes - BASELINE_BYTES))
+
     local avg_speed=0
-
-    if [ "$session_duration" -gt 0 ]; then
-        avg_speed=$((TOTAL_BYTES / session_duration / 1024))  # KB/s
+    if [ "$session_duration" -gt 0 ] && [ "$total_traffic" -gt 0 ]; then
+        avg_speed=$((total_traffic / session_duration / 1024))  # KB/s
     fi
-
-    local short_url="${CURRENT_URL:0:40}"
-    [ ${#CURRENT_URL} -gt 40 ] && short_url="${short_url}..."
 
     # Single line dynamic update
     echo -ne "\r${COLOR_CYAN}📊${COLOR_RESET} "
     echo -ne "${COLOR_BOLD}周期:${DOWNLOAD_CYCLES}${COLOR_RESET} | "
-    echo -ne "${COLOR_GREEN}流量:$(format_bytes $TOTAL_BYTES)${COLOR_RESET} | "
+    echo -ne "${COLOR_GREEN}总流量:$(format_bytes $total_traffic)${COLOR_RESET} | "
     echo -ne "${COLOR_YELLOW}时长:$(format_duration $session_duration)${COLOR_RESET} | "
-    echo -ne "${COLOR_MAGENTA}速度:${avg_speed}KB/s${COLOR_RESET} | "
+    echo -ne "${COLOR_MAGENTA}平均速度:${avg_speed}KB/s${COLOR_RESET} | "
     echo -ne "${COLOR_CYAN}节点:#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}"
     echo -ne "\033[K"
 }
@@ -570,7 +532,7 @@ run_download() {
     esac
 
     # Show live progress while download is running
-    show_live_stats "$CHECK_INTERVAL" "$url" "$output_file" &
+    show_live_stats "$CHECK_INTERVAL" "$url" &
     local progress_pid=$!
 
     # Wait for the download to complete
@@ -582,53 +544,9 @@ run_download() {
     wait $progress_pid 2>/dev/null
     clear_line
 
-    # Parse and accumulate traffic statistics
-    local cycle_bytes=0
+    # Increment cycle counter on successful download
     if [ "$exit_code" -eq 0 ]; then
-        case "$TOOL" in
-            oha)
-                # Parse oha output for total data transferred
-                # Look for patterns like "Data: 1.23 GB" or "Data: 456 MB"
-                # BusyBox grep doesn't support -P, use basic grep + awk
-                cycle_bytes=$(grep 'Data:' "$output_file" 2>/dev/null | head -1 | awk '{
-                    for(i=1; i<=NF; i++) {
-                        if($i == "Data:") {
-                            value=$(i+1)
-                            unit=$(i+2)
-                            bytes=0
-                            if (unit == "B") bytes = value
-                            else if (unit == "KB") bytes = value * 1024
-                            else if (unit == "MB") bytes = value * 1024 * 1024
-                            else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
-                            else if (unit == "TB") bytes = value * 1024 * 1024 * 1024 * 1024
-                            print int(bytes)
-                            exit
-                        }
-                    }
-                }')
-                ;;
-            autocannon)
-                # Parse autocannon output for total bytes
-                # Look for "Bytes/Sec" or total bytes transferred
-                # BusyBox grep doesn't support -P, use awk to find bytes pattern
-                cycle_bytes=$(awk '/[0-9.]+ [KMGT]?B/ {
-                    value=$1
-                    unit=$2
-                    bytes=0
-                    if (unit == "B") bytes = value
-                    else if (unit == "KB") bytes = value * 1024
-                    else if (unit == "MB") bytes = value * 1024 * 1024
-                    else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
-                    print int(bytes)
-                }' "$output_file" 2>/dev/null | tail -1 || echo "0")
-                ;;
-        esac
-
-        # Update total bytes if we got a valid value
-        if [ -n "$cycle_bytes" ] && [ "$cycle_bytes" -gt 0 ]; then
-            TOTAL_BYTES=$((TOTAL_BYTES + cycle_bytes))
-            DOWNLOAD_CYCLES=$((DOWNLOAD_CYCLES + 1))
-        fi
+        DOWNLOAD_CYCLES=$((DOWNLOAD_CYCLES + 1))
     fi
 
     # Show output if not suppressed

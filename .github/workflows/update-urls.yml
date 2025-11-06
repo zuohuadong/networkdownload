@@ -50,6 +50,11 @@ jobs:
           )"
           git push
 
+      - name: Trigger Docker image rebuild
+        if: steps.git-check.outputs.changed == 'true'
+        run: |
+          echo "URLs updated, Docker images will be rebuilt by ci-* workflows"
+
       - name: Create summary
         if: always()
         run: |

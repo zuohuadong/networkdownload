@@ -27,8 +27,9 @@ COPY --from=builder /oha /bin/oha
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# 创建 URLs 目录（外部 URL 列表将在运行时通过 CI 更新或卷挂载）
+# 创建 URLs 目录并复制外部 URL 文件
 RUN mkdir -p /app/urls
+COPY urls/external_urls.txt /app/urls/external_urls.txt
 
 # 设置默认环境变量
 ENV th=2
