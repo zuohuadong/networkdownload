@@ -27,9 +27,22 @@ COPY --from=builder /oha /bin/oha
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# 创建 URLs 目录并复制外部 URL 文件
+# 创建 URLs 目录
 RUN mkdir -p /app/urls
-COPY urls/external_urls.txt /app/urls/external_urls.txt
+
+# 复制 fetch_urls.sh 脚本并在构建时运行以获取最新 URL
+COPY scripts/fetch_urls.sh /tmp/fetch_urls.sh
+RUN chmod +x /tmp/fetch_urls.sh && \
+    cd /app && \
+    /tmp/fetch_urls.sh && \
+    rm /tmp/fetch_urls.sh
+
+# 如果 fetch_urls.sh 失败，使用仓库中的备份文件
+COPY urls/external_urls.txt /tmp/external_urls.txt.backup
+RUN if [ ! -f /app/urls/external_urls.txt ] || [ ! -s /app/urls/external_urls.txt ]; then \
+        cp /tmp/external_urls.txt.backup /app/urls/external_urls.txt; \
+    fi && \
+    rm /tmp/external_urls.txt.backup
 
 # 设置默认环境变量
 ENV th=2
