@@ -81,6 +81,23 @@ get_timestamp() {
     date '+%H:%M:%S'
 }
 
+# Function to format bytes to human readable format
+format_bytes() {
+    local bytes=$1
+    if [ "$bytes" -lt 1024 ]; then
+        echo "${bytes} B"
+    elif [ "$bytes" -lt 1048576 ]; then
+        echo "$((bytes / 1024)) KB"
+    elif [ "$bytes" -lt 1073741824 ]; then
+        echo "$((bytes / 1048576)) MB"
+    else
+        local gb=$((bytes / 1073741824))
+        local remainder=$((bytes % 1073741824))
+        local decimal=$((remainder * 100 / 1073741824))
+        printf "%d.%02d GB\n" $gb $decimal
+    fi
+}
+
 # Dynamic logging functions for in-place updates
 log_progress() {
     # Print progress message that can be updated in place
@@ -104,6 +121,13 @@ show_live_stats() {
     local elapsed=0
     local start_time=$(date +%s)
 
+    # Variables for real-time speed calculation
+    local last_bytes=$(get_network_bytes "$NETWORK_INTERFACE")
+    local last_time=$start_time
+    local realtime_speed=0
+    local speed_samples=()  # Array to store recent speed samples for smoothing
+    local max_samples=3     # Keep last 3 samples for smoothing
+
     while [ $elapsed -lt $duration ]; do
         local current_time=$(date +%s)
         elapsed=$((current_time - start_time))
@@ -112,6 +136,32 @@ show_live_stats() {
         # Get current network traffic from system
         local current_bytes=$(get_network_bytes "$NETWORK_INTERFACE")
         local total_traffic=$((current_bytes - BASELINE_BYTES))
+        local cycle_traffic=$((current_bytes - CYCLE_START_BYTES))
+
+        # Calculate real-time speed (bytes downloaded in the last second)
+        local time_diff=$((current_time - last_time))
+        if [ "$time_diff" -gt 0 ]; then
+            local bytes_diff=$((current_bytes - last_bytes))
+            local instant_speed=$((bytes_diff / time_diff / 1024))  # KB/s
+
+            # Add to samples array for smoothing
+            speed_samples+=($instant_speed)
+
+            # Keep only the last max_samples
+            if [ ${#speed_samples[@]} -gt $max_samples ]; then
+                speed_samples=("${speed_samples[@]:1}")
+            fi
+
+            # Calculate average of samples for smoother display
+            local sum=0
+            for speed in "${speed_samples[@]}"; do
+                sum=$((sum + speed))
+            done
+            realtime_speed=$((sum / ${#speed_samples[@]}))
+
+            last_bytes=$current_bytes
+            last_time=$current_time
+        fi
 
         # Calculate session stats
         local session_duration=$((current_time - SESSION_START))
@@ -120,19 +170,41 @@ show_live_stats() {
             avg_speed=$((total_traffic / session_duration / 1024))
         fi
 
-        # Simplified display - only show essential info
-        echo -ne "\r${COLOR_CYAN}[下载中]${COLOR_RESET} "
-        echo -ne "${COLOR_BOLD}总流量:$(format_bytes $total_traffic)${COLOR_RESET} | "
-        echo -ne "${COLOR_GREEN}周期:${DOWNLOAD_CYCLES}${COLOR_RESET} | "
-        echo -ne "${COLOR_MAGENTA}平均速度:${avg_speed}KB/s${COLOR_RESET} | "
-        echo -ne "${COLOR_YELLOW}倒计时:${remaining}s${COLOR_RESET} | "
-        echo -ne "${COLOR_DIM}节点:#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}\033[K"
+        # Calculate total bytes including historical data
+        local total_with_history=$((TOTAL_HISTORICAL_BYTES + total_traffic))
+        local month_with_current=$((MONTH_BYTES + total_traffic))
+
+        # Multi-line display with better organization
+        echo -ne "\r\033[2K"  # Clear entire line
+        echo -ne "${COLOR_BOLD_CYAN}[下载中]${COLOR_RESET}\n"
+
+        # Line 1: Traffic Statistics
+        echo -ne "\r\033[2K"
+        echo -ne "  ${COLOR_BOLD}流量统计${COLOR_RESET} ${COLOR_GRAY}→${COLOR_RESET} "
+        echo -ne "${COLOR_DIM}历史:${COLOR_RESET}${COLOR_GREEN}$(format_bytes $total_with_history)${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        echo -ne "${COLOR_DIM}本月:${COLOR_RESET}${COLOR_CYAN}$(format_bytes $month_with_current)${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        echo -ne "${COLOR_DIM}本周期:${COLOR_RESET}${COLOR_YELLOW}$(format_bytes $cycle_traffic)${COLOR_RESET}\n"
+
+        # Line 2: Speed and Status
+        echo -ne "\r\033[2K"
+        echo -ne "  ${COLOR_BOLD}运行状态${COLOR_RESET} ${COLOR_GRAY}→${COLOR_RESET} "
+        echo -ne "${COLOR_DIM}周期:${COLOR_RESET}${COLOR_BOLD_CYAN}${DOWNLOAD_CYCLES}${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        echo -ne "${COLOR_DIM}实时:${COLOR_RESET}${COLOR_BOLD_YELLOW}${realtime_speed}KB/s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        echo -ne "${COLOR_DIM}平均:${COLOR_RESET}${COLOR_MAGENTA}${avg_speed}KB/s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        echo -ne "${COLOR_DIM}倒计时:${COLOR_RESET}${COLOR_YELLOW}${remaining}s${COLOR_RESET} ${COLOR_GRAY}|${COLOR_RESET} "
+        echo -ne "${COLOR_DIM}节点:${COLOR_RESET}${COLOR_DIM}#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}"
+
+        # Move cursor up 2 lines for next update
+        echo -ne "\033[2A"
 
         sleep 1
     done
 
-    # Clear the progress line
-    echo -ne "\r\033[K"
+    # Clear the progress lines (3 lines total)
+    echo -ne "\r\033[2K"  # Clear line 1
+    echo -ne "\n\033[2K"  # Clear line 2
+    echo -ne "\n\033[2K"  # Clear line 3
+    echo -ne "\033[3A"    # Move cursor back up
 }
 
 # Stable large file URLs (100MB+ each)
@@ -176,7 +248,7 @@ TOOL=${tool:-oha}
 # Speed monitoring settings
 MIN_SPEED=${min_speed:-200}  # Minimum speed in KB/s (default 200 KB/s)
 CHECK_INTERVAL=${check_interval:-300}  # Check speed every 5 minutes (default 300 seconds)
-SLOW_THRESHOLD=${slow_threshold:-1}  # Number of consecutive slow detections before switching (default 1 = immediate)
+SLOW_THRESHOLD=${slow_threshold:-2}  # Number of consecutive slow detections before switching (default 2 = tolerate 1 fluctuation)
 SLOW_COUNT=0  # Counter for consecutive slow speed detections
 BENCHMARK_SIZE=5242880  # 5MB for quick speed check (reduced from 10MB)
 BENCHMARK_CONCURRENT=${benchmark_concurrent:-5}  # Concurrent benchmark threads (default 5)
@@ -184,9 +256,85 @@ MIN_BENCHMARK_SPEED=${min_benchmark_speed:-200}  # Filter out URLs slower than t
 TOP_URLS_COUNT=${top_urls:-0}  # Number of fastest URLs to keep (default 0 = no limit, keep all qualifying URLs)
 MAX_DISPLAY_URLS=${max_display_urls:-10}  # Maximum number of URLs to display in list (default 10, 0 = show all)
 
+# Sliding window settings for speed smoothing
+SPEED_WINDOW_SIZE=${speed_window_size:-3}  # Keep last N speed measurements (default 3)
+SPEED_WINDOW_ENABLED=${speed_window_enabled:-true}  # Enable sliding window averaging (default true)
+declare -A url_speed_history  # Associative array to store speed history for each URL
+
 # Traffic statistics variables
 SESSION_START=$(date +%s)  # Session start time (会话开始时间)
 DOWNLOAD_CYCLES=0  # Number of completed download cycles (下载周期数)
+CYCLE_START_BYTES=0  # Bytes at the start of current cycle (当前周期开始时的字节数)
+
+# Persistent traffic storage file
+TRAFFIC_DATA_DIR="/app/data"
+TRAFFIC_DATA_FILE="${TRAFFIC_DATA_DIR}/traffic_stats.txt"
+
+# Create data directory if it doesn't exist
+mkdir -p "$TRAFFIC_DATA_DIR" 2>/dev/null || true
+
+# Initialize traffic statistics
+TOTAL_HISTORICAL_BYTES=0  # Total traffic since first run (历史总流量)
+MONTH_BYTES=0             # Traffic for current month (本月总流量)
+CURRENT_MONTH=$(date +%Y-%m)  # Current month (YYYY-MM format)
+
+# Load historical traffic data
+load_traffic_data() {
+    if [ -f "$TRAFFIC_DATA_FILE" ]; then
+        # Read traffic data from file
+        while IFS='=' read -r key value; do
+            case "$key" in
+                total_bytes)
+                    TOTAL_HISTORICAL_BYTES=$value
+                    ;;
+                month)
+                    SAVED_MONTH=$value
+                    ;;
+                month_bytes)
+                    # Check if month has changed
+                    if [ "$SAVED_MONTH" = "$CURRENT_MONTH" ]; then
+                        MONTH_BYTES=$value
+                    else
+                        # New month, reset month bytes
+                        MONTH_BYTES=0
+                    fi
+                    ;;
+            esac
+        done < "$TRAFFIC_DATA_FILE"
+    fi
+}
+
+# Save traffic data to file
+save_traffic_data() {
+    local current_bytes=$(get_network_bytes "$NETWORK_INTERFACE")
+    local session_traffic=$((current_bytes - BASELINE_BYTES))
+
+    # Update totals
+    TOTAL_HISTORICAL_BYTES=$((TOTAL_HISTORICAL_BYTES + session_traffic))
+    MONTH_BYTES=$((MONTH_BYTES + session_traffic))
+
+    # Write to file
+    cat > "$TRAFFIC_DATA_FILE" <<EOF
+total_bytes=$TOTAL_HISTORICAL_BYTES
+month=$CURRENT_MONTH
+month_bytes=$MONTH_BYTES
+EOF
+}
+
+# Load existing traffic data
+load_traffic_data
+
+# Setup exit handler to save traffic data
+cleanup_and_save() {
+    echo ""
+    log_info "正在保存流量统计数据..."
+    save_traffic_data
+    log_success "流量数据已保存"
+    exit 0
+}
+
+# Trap signals to ensure data is saved on exit
+trap cleanup_and_save EXIT INT TERM
 
 # Get network interface name (usually eth0, could be ens33, etc.)
 # Try multiple methods to get the default network interface
@@ -235,8 +383,13 @@ else
     echo -e "  ${COLOR_CYAN}Top URLs:${COLOR_RESET}          ${COLOR_BOLD}${TOP_URLS_COUNT}${COLOR_RESET}"
 fi
 echo -e "  ${COLOR_CYAN}Check Interval:${COLOR_RESET}    ${COLOR_BOLD}${CHECK_INTERVAL}s${COLOR_RESET} ${COLOR_DIM}(every $((CHECK_INTERVAL / 60)) min)${COLOR_RESET}"
-echo -e "  ${COLOR_CYAN}Slow Threshold:${COLOR_RESET}    ${COLOR_BOLD}${SLOW_THRESHOLD}${COLOR_RESET} ${COLOR_DIM}(immediate if 1)${COLOR_RESET}"
+echo -e "  ${COLOR_CYAN}Slow Threshold:${COLOR_RESET}    ${COLOR_BOLD}${SLOW_THRESHOLD}${COLOR_RESET} ${COLOR_DIM}(tolerate $((SLOW_THRESHOLD - 1)) fluctuation)${COLOR_RESET}"
 echo -e "  ${COLOR_CYAN}Concurrent Tests:${COLOR_RESET}  ${COLOR_BOLD}${BENCHMARK_CONCURRENT}${COLOR_RESET}"
+if [ "$SPEED_WINDOW_ENABLED" = "true" ]; then
+    echo -e "  ${COLOR_CYAN}Speed Window:${COLOR_RESET}      ${COLOR_BOLD_GREEN}Enabled${COLOR_RESET} ${COLOR_DIM}(avg of last ${SPEED_WINDOW_SIZE} measurements)${COLOR_RESET}"
+else
+    echo -e "  ${COLOR_CYAN}Speed Window:${COLOR_RESET}      ${COLOR_DIM}Disabled${COLOR_RESET}"
+fi
 if [ "$MAX_DISPLAY_URLS" -eq 0 ]; then
     echo -e "  ${COLOR_CYAN}Max Display:${COLOR_RESET}       ${COLOR_BOLD}不限制${COLOR_RESET} ${COLOR_DIM}(显示所有节点)${COLOR_RESET}"
 else
@@ -257,23 +410,11 @@ else
     log_info "Bandwidth Limiting: ${COLOR_DIM}Disabled${COLOR_RESET}"
 fi
 echo ""
-
-# Function to format bytes to human readable format
-format_bytes() {
-    local bytes=$1
-    if [ "$bytes" -lt 1024 ]; then
-        echo "${bytes} B"
-    elif [ "$bytes" -lt 1048576 ]; then
-        echo "$((bytes / 1024)) KB"
-    elif [ "$bytes" -lt 1073741824 ]; then
-        echo "$((bytes / 1048576)) MB"
-    else
-        local gb=$((bytes / 1073741824))
-        local remainder=$((bytes % 1073741824))
-        local decimal=$((remainder * 100 / 1073741824))
-        printf "%d.%02d GB\n" $gb $decimal
-    fi
-}
+log_info "Traffic Statistics"
+echo -e "  ${COLOR_CYAN}Historical Total:${COLOR_RESET} ${COLOR_BOLD}$(format_bytes $TOTAL_HISTORICAL_BYTES)${COLOR_RESET}"
+echo -e "  ${COLOR_CYAN}Month Total:${COLOR_RESET}      ${COLOR_BOLD}$(format_bytes $MONTH_BYTES)${COLOR_RESET} ${COLOR_DIM}(${CURRENT_MONTH})${COLOR_RESET}"
+echo -e "  ${COLOR_CYAN}Data File:${COLOR_RESET}        ${COLOR_DIM}${TRAFFIC_DATA_FILE}${COLOR_RESET}"
+echo ""
 
 # Function to format seconds to human readable duration
 format_duration() {
@@ -308,19 +449,59 @@ show_stats() {
     echo -ne "\033[K"
 }
 
-# Function to test if a URL is accessible
-test_url() {
+# Function to test if a URL is accessible and return failure reason
+test_url_with_reason() {
     local url=$1
     if command -v curl >/dev/null 2>&1; then
         curl -s --connect-timeout 5 --max-time 10 -r 0-1024 "$url" >/dev/null 2>&1
-        return $?
+        local exit_code=$?
+        case $exit_code in
+            0)
+                echo "success"
+                return 0
+                ;;
+            6)
+                echo "dns_error"  # 无法解析主机（可能被墙或DNS问题）
+                return 1
+                ;;
+            7)
+                echo "connection_failed"  # 服务器不可用
+                return 1
+                ;;
+            28)
+                echo "timeout"  # 连接超时
+                return 1
+                ;;
+            35|51|60)
+                echo "ssl_error"  # SSL/证书错误
+                return 1
+                ;;
+            *)
+                echo "other_error"  # 其他错误
+                return 1
+                ;;
+        esac
     elif command -v wget >/dev/null 2>&1; then
         wget -q --timeout=5 --tries=1 --spider "$url" >/dev/null 2>&1
-        return $?
+        if [ $? -eq 0 ]; then
+            echo "success"
+            return 0
+        else
+            echo "connection_failed"
+            return 1
+        fi
     else
-        # If no curl/wget, just try the URL directly
+        # If no curl/wget, just assume success
+        echo "success"
         return 0
     fi
+}
+
+# Function to test if a URL is accessible
+test_url() {
+    local url=$1
+    test_url_with_reason "$url" >/dev/null 2>&1
+    return $?
 }
 
 # Function to benchmark URL speed (download speed test)
@@ -352,13 +533,18 @@ benchmark_url() {
 benchmark_url_to_file() {
     local url=$1
     local result_file=$2
+    local failed_file=$3
 
-    # Simplified output
-    # Check if URL is accessible
-    if test_url "$url" >/dev/null 2>&1; then
+    # Check if URL is accessible and get failure reason
+    local test_result=$(test_url_with_reason "$url")
+
+    if [ "$test_result" = "success" ]; then
         # Measure download speed
         speed=$(benchmark_url "$url")
         echo "${speed} ${url}" >> "$result_file"
+    else
+        # URL is not accessible, log failure reason
+        echo "${test_result}" >> "$failed_file"
     fi
 }
 
@@ -367,6 +553,7 @@ rebenchmark_urls() {
     log_warning "速度过慢，重新测速所有节点..."
 
     TEMP_FILE=$(mktemp)
+    FAILED_FILE=$(mktemp)
     local pids=()
     local count=0
 
@@ -387,7 +574,7 @@ $EXTERNAL_URLS"
 
     for url in $FULL_URL_LIST; do
         # Launch benchmark in background
-        benchmark_url_to_file "$url" "$TEMP_FILE" &
+        benchmark_url_to_file "$url" "$TEMP_FILE" "$FAILED_FILE" &
         pids+=($!)
         count=$((count + 1))
 
@@ -461,51 +648,9 @@ $EXTERNAL_URLS"
 
     # Show filtered results
     log_success "测速完成，保留 ${FILTERED_COUNT} 个最快节点"
-    log_dim "  平均速度: ${avg_speed} KB/s | 过滤阈值: max(${MIN_BENCHMARK_SPEED}, ${avg_speed}) KB/s"
-    echo ""
-    local index=1
-    local displayed=0
-    for url in $SORTED_URLS; do
-        # Limit display count if MAX_DISPLAY_URLS > 0
-        if [ "$MAX_DISPLAY_URLS" -gt 0 ] && [ "$displayed" -ge "$MAX_DISPLAY_URLS" ]; then
-            local remaining=$((FILTERED_COUNT - displayed))
-            if [ "$remaining" -gt 0 ]; then
-                log_dim "  ... 还有 ${remaining} 个节点未显示 (设置 max_display_urls=0 显示全部)"
-            fi
-            break
-        fi
-
-        # Get speed from temp file before deletion
-        speed=$(grep -F "$url" "$TEMP_FILE" | head -1 | awk '{print $1}')
-        local short_url="${url:0:45}"
-        [ ${#url} -gt 45 ] && short_url="${short_url}..."
-
-        # Color code based on speed
-        local speed_color="${COLOR_GREEN}"
-        if [ "$speed" -lt "$MIN_BENCHMARK_SPEED" ]; then
-            speed_color="${COLOR_YELLOW}"
-        fi
-        if [ "$speed" -lt "$MIN_SPEED" ]; then
-            speed_color="${COLOR_RED}"
-        fi
-
-        # Show speed relative to average
-        local speed_indicator=""
-        if [ "$speed" -ge $((avg_speed * 2)) ]; then
-            speed_indicator="${COLOR_GREEN}⚡${COLOR_RESET}"
-        elif [ "$speed" -ge $((avg_speed * 3 / 2)) ]; then
-            speed_indicator="${COLOR_GREEN}↑${COLOR_RESET}"
-        elif [ "$speed" -ge "$avg_speed" ]; then
-            speed_indicator="${COLOR_CYAN}→${COLOR_RESET}"
-        fi
-
-        printf "  ${COLOR_BOLD}#%d${COLOR_RESET} ${speed_color}%-8s KB/s${COLOR_RESET} %s ${COLOR_DIM}%s${COLOR_RESET}\n" "$index" "$speed" "$speed_indicator" "$short_url"
-        index=$((index + 1))
-        displayed=$((displayed + 1))
-    done
     echo ""
 
-    rm -f "$TEMP_FILE"
+    rm -f "$TEMP_FILE" "$FAILED_FILE"
 
     # Update URL list
     URL_LIST="$SORTED_URLS"
@@ -516,6 +661,9 @@ $EXTERNAL_URLS"
 run_download() {
     local url=$1
     local output_file=$(mktemp)
+
+    # Record cycle start bytes
+    CYCLE_START_BYTES=$(get_network_bytes "$NETWORK_INTERFACE")
 
     # Build trickle command if bandwidth limiting is enabled and trickle is available
     local trickle_cmd=""
@@ -569,32 +717,138 @@ run_download() {
     return $exit_code
 }
 
+# Sliding window functions for speed smoothing
+# Update speed history for a URL
+update_speed_history() {
+    local url=$1
+    local speed=$2
+
+    if [ "$SPEED_WINDOW_ENABLED" != "true" ]; then
+        echo "$speed"
+        return
+    fi
+
+    # Get current history
+    local history="${url_speed_history[$url]}"
+
+    if [ -z "$history" ]; then
+        # First measurement
+        url_speed_history[$url]="$speed"
+        echo "$speed"
+        return
+    fi
+
+    # Add new speed to history
+    local new_history="$history $speed"
+
+    # Keep only last SPEED_WINDOW_SIZE measurements
+    local trimmed_history=$(echo "$new_history" | awk -v size="$SPEED_WINDOW_SIZE" '{
+        split($0, arr)
+        n = split($0, arr)
+        start = (n > size) ? n - size + 1 : 1
+        for (i=start; i<=n; i++) {
+            if (i > start) printf " "
+            printf "%s", arr[i]
+        }
+    }')
+
+    url_speed_history[$url]="$trimmed_history"
+
+    # Calculate and return average
+    echo "$trimmed_history" | awk '{
+        sum=0
+        for(i=1; i<=NF; i++) sum+=$i
+        printf "%.0f", sum/NF
+    }'
+}
+
+# Get average speed from history
+get_average_speed() {
+    local url=$1
+    local history="${url_speed_history[$url]}"
+
+    if [ -z "$history" ]; then
+        echo "0"
+        return
+    fi
+
+    echo "$history" | awk '{
+        sum=0
+        for(i=1; i<=NF; i++) sum+=$i
+        printf "%.0f", sum/NF
+    }'
+}
+
+# Get speed history count
+get_speed_history_count() {
+    local url=$1
+    local history="${url_speed_history[$url]}"
+
+    if [ -z "$history" ]; then
+        echo "0"
+        return
+    fi
+
+    echo "$history" | wc -w
+}
+
 # Function to check current download speed
 check_current_speed() {
     local url=$1
 
-    # Speed check is silent, just update internal counters
+    # Measure current speed
     local current_speed=$(benchmark_url "$url")
 
-    if [ "$current_speed" -lt "$MIN_SPEED" ]; then
+    # Update speed history and get smoothed average
+    local avg_speed=$(update_speed_history "$url" "$current_speed")
+    local history_count=$(get_speed_history_count "$url")
+
+    # Use smoothed average if window is enabled, otherwise use current speed
+    local speed_to_check="$avg_speed"
+
+    # Optional: Log speed info for debugging (silent by default)
+    if [ -n "$DEBUG_SPEED" ]; then
+        log_dim "  [Speed Check] Current: ${current_speed} KB/s | Avg (${history_count}): ${avg_speed} KB/s | Threshold: ${MIN_SPEED} KB/s"
+    fi
+
+    if [ "$speed_to_check" -lt "$MIN_SPEED" ]; then
         SLOW_COUNT=$((SLOW_COUNT + 1))
 
         if [ "$SLOW_COUNT" -ge "$SLOW_THRESHOLD" ]; then
+            # Log slow speed detection with details
+            if [ "$SPEED_WINDOW_ENABLED" = "true" ]; then
+                log_warning "节点速度持续过慢 (平均 ${avg_speed} KB/s < ${MIN_SPEED} KB/s，连续 ${SLOW_COUNT} 次)"
+            else
+                log_warning "节点速度过慢 (${current_speed} KB/s < ${MIN_SPEED} KB/s，连续 ${SLOW_COUNT} 次)"
+            fi
+
             # Count remaining URLs in list
             local url_count=$(echo "$URL_LIST" | wc -w)
 
             if [ "$url_count" -gt 1 ]; then
                 SLOW_COUNT=0  # Reset counter for next URL
+                log_info "切换到下一个节点..."
                 return 1  # Trigger URL switch to next in list
             else
                 # Need to rebenchmark all URLs
                 rebenchmark_urls
                 return 1  # Trigger URL switch
             fi
+        else
+            # Still counting slow detections
+            if [ "$SPEED_WINDOW_ENABLED" = "true" ]; then
+                log_dim "  速度偏慢 (平均 ${avg_speed} KB/s)，继续观察 [${SLOW_COUNT}/${SLOW_THRESHOLD}]"
+            else
+                log_dim "  速度偏慢 (${current_speed} KB/s)，继续观察 [${SLOW_COUNT}/${SLOW_THRESHOLD}]"
+            fi
         fi
         return 0  # Continue with current URL for now
     else
-        SLOW_COUNT=0  # Reset counter if speed is good
+        # Speed is good, reset counter
+        if [ "$SLOW_COUNT" -gt 0 ]; then
+            log_dim "  速度恢复正常 (${avg_speed} KB/s)，重置计数器"
+        fi
+        SLOW_COUNT=0
     fi
 
     return 0
@@ -608,6 +862,7 @@ if [ -z "$SORTED_URLS" ]; then
     echo ""
 
     TEMP_FILE=$(mktemp)
+    FAILED_FILE=$(mktemp)
     pids=()
     count=0
     tested=0
@@ -617,7 +872,7 @@ if [ -z "$SORTED_URLS" ]; then
         log_progress "测速进度: ${tested}/${URL_COUNT}"
 
         # Launch benchmark in background
-        benchmark_url_to_file "$url" "$TEMP_FILE" &
+        benchmark_url_to_file "$url" "$TEMP_FILE" "$FAILED_FILE" &
         pids+=($!)
         count=$((count + 1))
 
@@ -695,57 +950,37 @@ if [ -z "$SORTED_URLS" ]; then
     log_success "测速完成"
     echo ""
     log_info "测速结果汇总"
-    printf "  ${COLOR_CYAN}总测试节点:${COLOR_RESET}   ${COLOR_BOLD}%s 个${COLOR_RESET}\n" "$TOTAL_TESTED"
-    printf "  ${COLOR_CYAN}平均速度:${COLOR_RESET}     ${COLOR_BOLD}%s KB/s${COLOR_RESET}\n" "$avg_speed"
-    printf "  ${COLOR_CYAN}过滤阈值:${COLOR_RESET}     ${COLOR_BOLD}%s KB/s${COLOR_RESET} ${COLOR_DIM}(min_benchmark_speed)${COLOR_RESET}\n" "$MIN_BENCHMARK_SPEED"
-    printf "  ${COLOR_CYAN}过滤后保留:${COLOR_RESET}   ${COLOR_BOLD}%s 个${COLOR_RESET} ${COLOR_DIM}(速度 ≥ max(${MIN_BENCHMARK_SPEED}, ${avg_speed}) KB/s)${COLOR_RESET}\n" "$FILTERED_COUNT"
-    echo ""
-    log_info "将使用的节点列表"
-    echo ""
-    index=1
-    displayed=0
-    for url in $SORTED_URLS; do
-        # Limit display count if MAX_DISPLAY_URLS > 0
-        if [ "$MAX_DISPLAY_URLS" -gt 0 ] && [ "$displayed" -ge "$MAX_DISPLAY_URLS" ]; then
-            remaining=$((FILTERED_COUNT - displayed))
-            if [ "$remaining" -gt 0 ]; then
-                log_dim "  ... 还有 ${remaining} 个节点未显示 (设置 max_display_urls=0 显示全部)"
-            fi
-            break
-        fi
 
-        # Get speed from temp file before deletion
-        speed=$(grep -F "$url" "$TEMP_FILE" | head -1 | awk '{print $1}')
-        short_url="${url:0:45}"
-        [ ${#url} -gt 45 ] && short_url="${short_url}..."
+    # Calculate failure statistics
+    local dns_errors=0
+    local connection_failures=0
+    local timeouts=0
+    local ssl_errors=0
+    local other_errors=0
+    local success_count=$TOTAL_TESTED
 
-        # Color code based on speed
-        speed_color="${COLOR_GREEN}"
-        if [ "$speed" -lt "$MIN_BENCHMARK_SPEED" ]; then
-            speed_color="${COLOR_YELLOW}"
-        fi
-        if [ "$speed" -lt "$MIN_SPEED" ]; then
-            speed_color="${COLOR_RED}"
-        fi
+    if [ -f "$FAILED_FILE" ] && [ -s "$FAILED_FILE" ]; then
+        dns_errors=$(grep -c "dns_error" "$FAILED_FILE" 2>/dev/null || echo "0")
+        connection_failures=$(grep -c "connection_failed" "$FAILED_FILE" 2>/dev/null || echo "0")
+        timeouts=$(grep -c "timeout" "$FAILED_FILE" 2>/dev/null || echo "0")
+        ssl_errors=$(grep -c "ssl_error" "$FAILED_FILE" 2>/dev/null || echo "0")
+        other_errors=$(grep -c "other_error" "$FAILED_FILE" 2>/dev/null || echo "0")
+    fi
 
-        # Show speed relative to average
-        speed_indicator=""
-        if [ "$speed" -ge $((avg_speed * 2)) ]; then
-            speed_indicator="${COLOR_GREEN}⚡${COLOR_RESET}"  # Much faster than average
-        elif [ "$speed" -ge $((avg_speed * 3 / 2)) ]; then
-            speed_indicator="${COLOR_GREEN}↑${COLOR_RESET}"  # Faster than average
-        elif [ "$speed" -ge "$avg_speed" ]; then
-            speed_indicator="${COLOR_CYAN}→${COLOR_RESET}"  # Around average
-        fi
-
-        printf "  ${COLOR_BOLD}#%d${COLOR_RESET} ${speed_color}%-8s KB/s${COLOR_RESET} %s ${COLOR_DIM}%s${COLOR_RESET}\n" "$index" "$speed" "$speed_indicator" "$short_url"
-        index=$((index + 1))
-        displayed=$((displayed + 1))
-    done
+    printf "  ${COLOR_CYAN}总测试节点:${COLOR_RESET}       ${COLOR_BOLD}%s 个${COLOR_RESET}\n" "$URL_COUNT"
+    printf "  ${COLOR_CYAN}测速成功:${COLOR_RESET}         ${COLOR_BOLD}%s 个${COLOR_RESET}\n" "$success_count"
+    [ "$dns_errors" -gt 0 ] && printf "  ${COLOR_CYAN}DNS解析失败/被墙:${COLOR_RESET} ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$dns_errors"
+    [ "$connection_failures" -gt 0 ] && printf "  ${COLOR_CYAN}服务器不可用:${COLOR_RESET}     ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$connection_failures"
+    [ "$timeouts" -gt 0 ] && printf "  ${COLOR_CYAN}连接超时:${COLOR_RESET}         ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$timeouts"
+    [ "$ssl_errors" -gt 0 ] && printf "  ${COLOR_CYAN}SSL/证书错误:${COLOR_RESET}     ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$ssl_errors"
+    [ "$other_errors" -gt 0 ] && printf "  ${COLOR_CYAN}其他错误:${COLOR_RESET}         ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$other_errors"
+    printf "  ${COLOR_CYAN}平均速度:${COLOR_RESET}         ${COLOR_BOLD}%s KB/s${COLOR_RESET}\n" "$avg_speed"
+    printf "  ${COLOR_CYAN}过滤阈值:${COLOR_RESET}         ${COLOR_BOLD}%s KB/s${COLOR_RESET} ${COLOR_DIM}(min_benchmark_speed)${COLOR_RESET}\n" "$MIN_BENCHMARK_SPEED"
+    printf "  ${COLOR_CYAN}过滤后保留:${COLOR_RESET}       ${COLOR_BOLD}%s 个${COLOR_RESET} ${COLOR_DIM}(速度 ≥ max(${MIN_BENCHMARK_SPEED}, ${avg_speed}) KB/s)${COLOR_RESET}\n" "$FILTERED_COUNT"
     echo ""
 
-    # Clean up temp file after displaying results
-    rm -f "$TEMP_FILE"
+    # Clean up temp files after displaying results
+    rm -f "$TEMP_FILE" "$FAILED_FILE"
 
     # Use sorted URLs
     URL_LIST="$SORTED_URLS"

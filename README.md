@@ -29,7 +29,9 @@ docker run zuohuadong/networkdownload
 
 - ✅ **智能测速选择**：启动时自动测试所有 URL 速度，优先使用最快的节点
 - ✅ **并发测速**：默认 5 个并发测速，启动时间从 60 秒降至约 10 秒
-- ✅ **动态速度监控**：每 5 分钟检查下载速度，低于阈值时立即切换节点
+- ✅ **动态速度监控**：每 5 分钟检查下载速度，低于阈值时切换节点
+- ✅ **滑动窗口平滑**：使用最近 3 次测速结果的平均值，有效减少速度波动误判
+- ✅ **容错机制**：默认容忍 1 次速度波动，避免因短暂网络抖动而频繁切换
 - ✅ **智能节点过滤**：自动过滤慢速节点，只使用最快的几个节点
 - ✅ **多 URL 自动切换**：内置多个稳定的测速文件源（Cloudflare、OVH、Tele2 等）
 - ✅ **自动更新 URL 列表**：Docker 构建时从 [llxhq](https://github.com/uu6/llxhq) 获取最新刷流 URL，并支持运行时定期更新
@@ -67,11 +69,13 @@ docker run zuohuadong/networkdownload
 | `ui` | 日志输出控制 | `--no-tui` (rust)<br>`--no-progress` (bun) |
 | `min_speed` | 最低速度阈值（KB/s），低于此值将触发慢速计数 | `200` |
 | `check_interval` | 速度检查间隔（秒），建议 300-600 秒 | `300` |
-| `slow_threshold` | 慢速检测次数阈值，达到后切换节点 | `1` (立即切换) |
+| `slow_threshold` | 慢速检测次数阈值，达到后切换节点 | `2` (容忍1次波动) |
 | `min_benchmark_speed` | 过滤阈值（KB/s），启动时过滤掉速度低于此值的节点 | `200` |
 | `top_urls` | 保留最快的 N 个节点用于轮换（0=不限制，保留所有符合条件的节点） | `0` (不限制) |
 | `benchmark_concurrent` | 并发测速线程数，加快启动速度 | `5` |
 | `max_display_urls` | 节点列表最大显示数量（0=显示全部） | `10` |
+| `speed_window_enabled` | 是否启用滑动窗口平均速度（减少速度波动影响） | `true` |
+| `speed_window_size` | 滑动窗口大小（保留最近 N 次测速结果） | `3` |
 | `url_update_enabled` | 是否启用运行时 URL 列表自动更新 | `true` |
 | `url_update_interval` | URL 列表自动更新间隔（天） | `7` |
 | `bandwidth_limit_download` | 下载带宽限制（KB/s），留空则不限制<br>**仅 Debian 版本支持** | `` |
@@ -117,27 +121,35 @@ docker run -e top_urls=3 -e min_benchmark_speed=1000 zuohuadong/networkdownload
 # 不限制节点数量，保留所有高于平均速度的节点（默认行为）
 docker run -e top_urls=0 -e min_benchmark_speed=500 zuohuadong/networkdownload
 
-# 允许容忍 3 次慢速检测后再切换节点（适合网络波动环境）
+# 容忍多次慢速检测后再切换节点（适合网络波动环境）
 docker run -e slow_threshold=3 zuohuadong/networkdownload
+
+# 调整滑动窗口大小以平滑速度波动（保留最近5次测速）
+docker run -e speed_window_size=5 zuohuadong/networkdownload
+
+# 禁用滑动窗口，使用实时速度判断（更敏感）
+docker run -e speed_window_enabled=false -e slow_threshold=1 zuohuadong/networkdownload
 ```
 
 ### 优化配置示例
 ```bash
-# 高性能配置：只使用最快节点，立即切换慢速节点
+# 高性能配置：只使用最快节点，快速切换慢速节点
 docker run \
   -e th=20 \
   -e top_urls=3 \
   -e min_benchmark_speed=1000 \
   -e slow_threshold=1 \
+  -e speed_window_enabled=false \
   -e check_interval=300 \
   zuohuadong/networkdownload
 
-# 稳定性优先配置：保留所有快速节点，容忍短暂波动
+# 稳定性优先配置：保留所有快速节点，容忍短暂波动（推荐）
 docker run \
   -e th=10 \
   -e top_urls=0 \
   -e min_benchmark_speed=300 \
-  -e slow_threshold=2 \
+  -e slow_threshold=3 \
+  -e speed_window_size=5 \
   -e check_interval=600 \
   zuohuadong/networkdownload
 
@@ -146,7 +158,7 @@ docker run \
   -e th=15 \
   -e top_urls=0 \
   -e min_benchmark_speed=200 \
-  -e slow_threshold=1 \
+  -e slow_threshold=2 \
   zuohuadong/networkdownload
 ```
 
@@ -337,7 +349,8 @@ docker run -e ui="" zuohuadong/networkdownload:bun
 运行过程中会定期监控下载速度，采用智能切换策略：
 - 默认每 5 分钟检查一次当前 URL 的实际下载速度
 - 检查时仅下载 5MB 测试数据，开销极小（每小时约 60MB）
-- 如果速度低于设定阈值（默认 200 KB/s），**立即切换**到下一个快速节点
+- **滑动窗口平滑**：使用最近 3 次测速结果的平均值，减少波动误判（默认启用）
+- **智能容错**：默认容忍 1 次速度波动，连续 2 次检测到慢速才切换节点
 - **粘性使用**：如果当前节点速度良好，会持续使用该节点，不会切换
 - **智能轮换**：只在预先筛选的最快几个节点之间切换
 - **全局重测**：如果所有快速节点都变慢，自动重新测试所有 URL 并更新节点列表
@@ -346,7 +359,7 @@ docker run -e ui="" zuohuadong/networkdownload:bun
 **性能优化设计**：
 - ✅ 持续下载 5 分钟，不频繁中断
 - ✅ 测速开销低：每小时仅约 60MB（12次 × 5MB）
-- ✅ 立即响应：检测到慢速立即切换，不浪费时间
+- ✅ 智能判断：结合历史数据，避免因短暂波动而误判
 - ✅ 只用快速节点：避免轮询到慢速节点导致速度骤降
 - ✅ 可自定义检查间隔和阈值，平衡响应速度和性能开销
 
@@ -356,13 +369,21 @@ docker run -e ui="" zuohuadong/networkdownload:bun
   节点 #1 (Cloudflare 6000 KB/s) → 持续使用 → 不切换
   结果：流量稳定，速度始终保持在 6 MB/s
 
-场景 2：最快节点变慢
-  节点 #1 速度降至 150 KB/s (低于 200 KB/s 阈值)
-    ↓ 立即切换
-  节点 #2 (Hetzner 5000 KB/s) → 继续下载
-  结果：快速恢复高速，最小化慢速时间
+场景 2：短暂网络波动（新：智能容错）
+  测速 1: 5000 KB/s → 正常
+  测速 2: 180 KB/s  → 检测到慢速 [1/2] 继续观察
+  测速 3: 5100 KB/s → 速度恢复，重置计数器
+  结果：识别出短暂波动，保持在优质节点，避免误判
 
-场景 3：所有快速节点都变慢
+场景 3：节点持续变慢（新：滑动窗口判断）
+  测速 1: 5000 KB/s → 滑动平均: 5000
+  测速 2: 180 KB/s  → 滑动平均: 2590 (仍高于阈值) [1/2]
+  测速 3: 150 KB/s  → 滑动平均: 1777 (低于阈值) [2/2]
+    ↓ 连续 2 次检测到慢速，触发切换
+  节点 #2 (Hetzner 5000 KB/s) → 切换成功
+  结果：准确识别真正变慢的节点并切换
+
+场景 4：所有快速节点都变慢
   节点 #1, #2, #3 都低于阈值
     ↓ 触发全局重测
   重新测试所有 10 个 URL
@@ -380,6 +401,33 @@ docker run -e url_custom=https://your-cdn.com/file.bin zuohuadong/networkdownloa
 ```
 
 也可以修改 `entrypoint.sh` 中的 `URLS` 变量添加更多备用 URL。
+
+### 为什么看到"URL 更新脚本不存在"的警告？
+
+如果你看到以下警告：
+```
+⚠ URL 更新脚本不存在: /app/scripts/update_urls_runtime.sh
+```
+
+**可能原因**：
+1. 使用的是旧版本 Docker 镜像，该脚本尚未包含在镜像中
+2. 使用自定义构建时未正确复制脚本文件
+
+**解决方法**：
+```bash
+# 方法 1：拉取最新镜像（推荐）
+docker pull zuohuadong/networkdownload:latest
+
+# 方法 2：禁用运行时 URL 自动更新功能
+docker run -e url_update_enabled=false zuohuadong/networkdownload
+
+# 方法 3：如果自己构建，确保 Dockerfile 包含以下内容：
+# RUN mkdir -p /app/scripts
+# COPY scripts/update_urls_runtime.sh /app/scripts/update_urls_runtime.sh
+# RUN chmod +x /app/scripts/update_urls_runtime.sh
+```
+
+**注意**：此警告不会影响核心下载功能，只是运行时无法自动更新 URL 列表。内置的 URL 列表仍然可以正常使用。
 
 ## 贡献
 
