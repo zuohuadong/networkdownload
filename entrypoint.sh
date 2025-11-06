@@ -521,7 +521,8 @@ benchmark_url() {
 
     # Download 5MB and measure speed using curl's built-in speed measurement
     # Use curl's -w (write-out) to get accurate speed in bytes/second
-    local speed_bytes_per_sec=$(curl -s --connect-timeout 5 --max-time 6 -r 0-$BENCHMARK_SIZE \
+    # Increase timeout to 10 seconds to avoid premature timeout on fast connections
+    local speed_bytes_per_sec=$(curl -s --connect-timeout 5 --max-time 10 -r 0-$BENCHMARK_SIZE \
         -w "%{speed_download}" -o /dev/null "$url" 2>/dev/null)
 
     # Check if curl succeeded and returned a valid speed
@@ -532,6 +533,13 @@ benchmark_url() {
 
     # Convert bytes/sec to KB/sec (using awk for floating point arithmetic)
     local speed_kb=$(echo "$speed_bytes_per_sec" | awk '{printf "%.0f", $1 / 1024}')
+
+    # Ensure result is a valid number
+    if [ -z "$speed_kb" ] || ! [[ "$speed_kb" =~ ^[0-9]+$ ]]; then
+        echo "0"
+        return
+    fi
+
     echo "$speed_kb"
 }
 
@@ -805,9 +813,28 @@ check_current_speed() {
     # Measure current speed
     local current_speed=$(benchmark_url "$url")
 
+    # If speed measurement failed (0), try to use previous average
+    if [ "$current_speed" -eq 0 ] 2>/dev/null; then
+        # Get previous average if available
+        local prev_avg=$(get_average_speed "$url")
+        if [ "$prev_avg" -gt 0 ] 2>/dev/null; then
+            log_dim "  测速暂时失败，使用之前的平均速度 (${prev_avg} KB/s)"
+            current_speed=$prev_avg
+        else
+            # No previous data, skip this check
+            log_dim "  测速失败，跳过本次检查"
+            return 0
+        fi
+    fi
+
     # Update speed history and get smoothed average
     local avg_speed=$(update_speed_history "$url" "$current_speed")
     local history_count=$(get_speed_history_count "$url")
+
+    # Ensure avg_speed is valid
+    if [ -z "$avg_speed" ] || [ "$avg_speed" -eq 0 ] 2>/dev/null; then
+        avg_speed=$current_speed
+    fi
 
     # Use smoothed average if window is enabled, otherwise use current speed
     local speed_to_check="$avg_speed"
@@ -817,7 +844,7 @@ check_current_speed() {
         log_dim "  [Speed Check] Current: ${current_speed} KB/s | Avg (${history_count}): ${avg_speed} KB/s | Threshold: ${MIN_SPEED} KB/s"
     fi
 
-    if [ "$speed_to_check" -lt "$MIN_SPEED" ]; then
+    if [ "$speed_to_check" -lt "$MIN_SPEED" ] 2>/dev/null; then
         SLOW_COUNT=$((SLOW_COUNT + 1))
 
         if [ "$SLOW_COUNT" -ge "$SLOW_THRESHOLD" ]; then
@@ -939,7 +966,7 @@ if [ -z "$SORTED_URLS" ]; then
 
     # Count filtered URLs
     FILTERED_COUNT=$(echo "$SORTED_URLS" | grep -c .)
-    TOTAL_TESTED=$(wc -l < "$TEMP_FILE")
+    TOTAL_TESTED=$(wc -l < "$TEMP_FILE" | tr -d '[:space:]')
 
     if [ "$FILTERED_COUNT" -eq 0 ]; then
         log_warning "没有找到同时满足以下条件的节点："
@@ -958,12 +985,17 @@ if [ -z "$SORTED_URLS" ]; then
     log_info "测速结果汇总"
 
     # Calculate failure statistics
-    local dns_errors=0
-    local connection_failures=0
-    local timeouts=0
-    local ssl_errors=0
-    local other_errors=0
-    local success_count=$TOTAL_TESTED
+    dns_errors=0
+    connection_failures=0
+    timeouts=0
+    ssl_errors=0
+    other_errors=0
+    success_count="${TOTAL_TESTED:-0}"
+
+    # Ensure success_count is a valid number
+    if [ -z "$success_count" ] || ! [[ "$success_count" =~ ^[0-9]+$ ]]; then
+        success_count="0"
+    fi
 
     if [ -f "$FAILED_FILE" ] && [ -s "$FAILED_FILE" ]; then
         dns_errors=$(grep -c "dns_error" "$FAILED_FILE" 2>/dev/null || echo "0")
@@ -973,13 +1005,29 @@ if [ -z "$SORTED_URLS" ]; then
         other_errors=$(grep -c "other_error" "$FAILED_FILE" 2>/dev/null || echo "0")
     fi
 
+    # Remove any whitespace from numbers
+    dns_errors=$(echo "$dns_errors" | tr -d '[:space:]')
+    connection_failures=$(echo "$connection_failures" | tr -d '[:space:]')
+    timeouts=$(echo "$timeouts" | tr -d '[:space:]')
+    ssl_errors=$(echo "$ssl_errors" | tr -d '[:space:]')
+    other_errors=$(echo "$other_errors" | tr -d '[:space:]')
+    success_count=$(echo "$success_count" | tr -d '[:space:]')
+
+    # Ensure all variables are valid numbers
+    [ -z "$dns_errors" ] && dns_errors="0"
+    [ -z "$connection_failures" ] && connection_failures="0"
+    [ -z "$timeouts" ] && timeouts="0"
+    [ -z "$ssl_errors" ] && ssl_errors="0"
+    [ -z "$other_errors" ] && other_errors="0"
+    [ -z "$success_count" ] && success_count="0"
+
     printf "  ${COLOR_CYAN}总测试节点:${COLOR_RESET}       ${COLOR_BOLD}%s 个${COLOR_RESET}\n" "$URL_COUNT"
-    printf "  ${COLOR_CYAN}测速成功:${COLOR_RESET}         ${COLOR_BOLD}%s 个${COLOR_RESET}\n" "$success_count"
-    [ "$dns_errors" -gt 0 ] && printf "  ${COLOR_CYAN}DNS解析失败/被墙:${COLOR_RESET} ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$dns_errors"
-    [ "$connection_failures" -gt 0 ] && printf "  ${COLOR_CYAN}服务器不可用:${COLOR_RESET}     ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$connection_failures"
-    [ "$timeouts" -gt 0 ] && printf "  ${COLOR_CYAN}连接超时:${COLOR_RESET}         ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$timeouts"
-    [ "$ssl_errors" -gt 0 ] && printf "  ${COLOR_CYAN}SSL/证书错误:${COLOR_RESET}     ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$ssl_errors"
-    [ "$other_errors" -gt 0 ] && printf "  ${COLOR_CYAN}其他错误:${COLOR_RESET}         ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$other_errors"
+    printf "  ${COLOR_CYAN}测速成功:${COLOR_RESET}          ${COLOR_BOLD}%s 个${COLOR_RESET}\n" "$success_count"
+    [ "$dns_errors" -gt 0 ] 2>/dev/null && printf "  ${COLOR_CYAN}DNS解析失败/被墙:${COLOR_RESET} ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$dns_errors"
+    [ "$connection_failures" -gt 0 ] 2>/dev/null && printf "  ${COLOR_CYAN}服务器不可用:${COLOR_RESET}     ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$connection_failures"
+    [ "$timeouts" -gt 0 ] 2>/dev/null && printf "  ${COLOR_CYAN}连接超时:${COLOR_RESET}         ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$timeouts"
+    [ "$ssl_errors" -gt 0 ] 2>/dev/null && printf "  ${COLOR_CYAN}SSL/证书错误:${COLOR_RESET}     ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$ssl_errors"
+    [ "$other_errors" -gt 0 ] 2>/dev/null && printf "  ${COLOR_CYAN}其他错误:${COLOR_RESET}         ${COLOR_YELLOW}%s 个${COLOR_RESET}\n" "$other_errors"
     printf "  ${COLOR_CYAN}平均速度:${COLOR_RESET}         ${COLOR_BOLD}%s KB/s${COLOR_RESET}\n" "$avg_speed"
     printf "  ${COLOR_CYAN}过滤阈值:${COLOR_RESET}         ${COLOR_BOLD}%s KB/s${COLOR_RESET} ${COLOR_DIM}(min_benchmark_speed)${COLOR_RESET}\n" "$MIN_BENCHMARK_SPEED"
     printf "  ${COLOR_CYAN}过滤后保留:${COLOR_RESET}       ${COLOR_BOLD}%s 个${COLOR_RESET} ${COLOR_DIM}(速度 ≥ max(${MIN_BENCHMARK_SPEED}, ${avg_speed}) KB/s)${COLOR_RESET}\n" "$FILTERED_COUNT"
