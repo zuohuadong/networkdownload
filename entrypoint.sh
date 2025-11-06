@@ -121,36 +121,40 @@ show_live_stats() {
             case "$TOOL" in
                 oha)
                     # Parse oha output for current data transferred
-                    local oha_data=$(grep -oP 'Data:\s+[\d.]+\s+[KMGT]?B' "$output_file" 2>/dev/null | tail -1 || echo "")
+                    # BusyBox grep doesn't support -P, use basic grep + awk
+                    local oha_data=$(grep 'Data:' "$output_file" 2>/dev/null | tail -1 || echo "")
                     if [ -n "$oha_data" ]; then
                         cycle_bytes=$(echo "$oha_data" | awk '{
-                            value=$2
-                            unit=$3
-                            bytes=0
-                            if (unit == "B") bytes = value
-                            else if (unit == "KB") bytes = value * 1024
-                            else if (unit == "MB") bytes = value * 1024 * 1024
-                            else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
-                            else if (unit == "TB") bytes = value * 1024 * 1024 * 1024 * 1024
-                            print int(bytes)
+                            for(i=1; i<=NF; i++) {
+                                if($i == "Data:") {
+                                    value=$(i+1)
+                                    unit=$(i+2)
+                                    bytes=0
+                                    if (unit == "B") bytes = value
+                                    else if (unit == "KB") bytes = value * 1024
+                                    else if (unit == "MB") bytes = value * 1024 * 1024
+                                    else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
+                                    else if (unit == "TB") bytes = value * 1024 * 1024 * 1024 * 1024
+                                    print int(bytes)
+                                    exit
+                                }
+                            }
                         }')
                     fi
                     ;;
                 autocannon)
                     # Parse autocannon output
-                    local autocannon_data=$(grep -oP '\d+\.?\d*\s+[KMGT]?B' "$output_file" 2>/dev/null | tail -1 || echo "")
-                    if [ -n "$autocannon_data" ]; then
-                        cycle_bytes=$(echo "$autocannon_data" | awk '{
-                            value=$1
-                            unit=$2
-                            bytes=0
-                            if (unit == "B") bytes = value
-                            else if (unit == "KB") bytes = value * 1024
-                            else if (unit == "MB") bytes = value * 1024 * 1024
-                            else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
-                            print int(bytes)
-                        }')
-                    fi
+                    # BusyBox grep doesn't support -P, use awk to find bytes pattern
+                    cycle_bytes=$(awk '/[0-9.]+ [KMGT]?B/ {
+                        value=$1
+                        unit=$2
+                        bytes=0
+                        if (unit == "B") bytes = value
+                        else if (unit == "KB") bytes = value * 1024
+                        else if (unit == "MB") bytes = value * 1024 * 1024
+                        else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
+                        print int(bytes)
+                    }' "$output_file" 2>/dev/null | tail -1 || echo "0")
                     ;;
             esac
         fi
@@ -161,21 +165,15 @@ show_live_stats() {
             current_speed=$((cycle_bytes / cycle_duration / 1024))
         fi
 
-        # Progress bar using ASCII characters for better compatibility
-        local progress=$((elapsed * 100 / duration))
-        local bar_width=30
-        local filled=$((progress * bar_width / 100))
-        local empty=$((bar_width - filled))
-        local bar=$(printf "%${filled}s" | tr ' ' '=')$(printf "%${empty}s" | tr ' ' '-')
+        # Simplified display - only show essential info
+        local total_traffic=$((TOTAL_BYTES + cycle_bytes))
 
-        # Update line in place - single line with all info
-        echo -ne "\r${COLOR_CYAN}📥${COLOR_RESET} "
-        echo -ne "${COLOR_BOLD}[${bar}]${COLOR_RESET} ${progress}% | "
-        echo -ne "${COLOR_YELLOW}${remaining}s${COLOR_RESET} | "
+        # Update line in place - simple single line
+        echo -ne "\r${COLOR_CYAN}[下载中]${COLOR_RESET} "
         echo -ne "${COLOR_GREEN}周期:${DOWNLOAD_CYCLES}${COLOR_RESET} | "
-        echo -ne "${COLOR_MAGENTA}流量:$(format_bytes $((TOTAL_BYTES + cycle_bytes)))${COLOR_RESET} | "
-        echo -ne "${COLOR_CYAN}速度:${current_speed}KB/s${COLOR_RESET} | "
-        echo -ne "${COLOR_DIM}#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}\033[K"
+        echo -ne "${COLOR_BOLD}总流量:$(format_bytes $total_traffic)${COLOR_RESET} | "
+        echo -ne "${COLOR_YELLOW}倒计时:${remaining}s${COLOR_RESET} | "
+        echo -ne "${COLOR_DIM}节点:#${CURRENT_URL_INDEX}/${TOTAL_URLS}${COLOR_RESET}\033[K"
 
         sleep 1
     done
@@ -591,22 +589,29 @@ run_download() {
             oha)
                 # Parse oha output for total data transferred
                 # Look for patterns like "Data: 1.23 GB" or "Data: 456 MB"
-                cycle_bytes=$(grep -oP 'Data:\s+[\d.]+\s+[KMGT]?B' "$output_file" | head -1 | awk '{
-                    value=$2
-                    unit=$3
-                    bytes=0
-                    if (unit == "B") bytes = value
-                    else if (unit == "KB") bytes = value * 1024
-                    else if (unit == "MB") bytes = value * 1024 * 1024
-                    else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
-                    else if (unit == "TB") bytes = value * 1024 * 1024 * 1024 * 1024
-                    print int(bytes)
+                # BusyBox grep doesn't support -P, use basic grep + awk
+                cycle_bytes=$(grep 'Data:' "$output_file" 2>/dev/null | head -1 | awk '{
+                    for(i=1; i<=NF; i++) {
+                        if($i == "Data:") {
+                            value=$(i+1)
+                            unit=$(i+2)
+                            bytes=0
+                            if (unit == "B") bytes = value
+                            else if (unit == "KB") bytes = value * 1024
+                            else if (unit == "MB") bytes = value * 1024 * 1024
+                            else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
+                            else if (unit == "TB") bytes = value * 1024 * 1024 * 1024 * 1024
+                            print int(bytes)
+                            exit
+                        }
+                    }
                 }')
                 ;;
             autocannon)
                 # Parse autocannon output for total bytes
                 # Look for "Bytes/Sec" or total bytes transferred
-                cycle_bytes=$(grep -oP '\d+\.?\d*\s+[KMGT]?B' "$output_file" | tail -1 | awk '{
+                # BusyBox grep doesn't support -P, use awk to find bytes pattern
+                cycle_bytes=$(awk '/[0-9.]+ [KMGT]?B/ {
                     value=$1
                     unit=$2
                     bytes=0
@@ -615,7 +620,7 @@ run_download() {
                     else if (unit == "MB") bytes = value * 1024 * 1024
                     else if (unit == "GB") bytes = value * 1024 * 1024 * 1024
                     print int(bytes)
-                }')
+                }' "$output_file" 2>/dev/null | tail -1 || echo "0")
                 ;;
         esac
 
