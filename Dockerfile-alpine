@@ -53,5 +53,9 @@ ENV url_custom=""
 ENV ui=--no-tui
 ENV tool=oha
 
+# URL 自动更新配置
+ENV url_update_enabled=true
+ENV url_update_interval=7
+
 # 使用新的入口脚本，支持多个备用 URL
 ENTRYPOINT ["/entrypoint.sh"]

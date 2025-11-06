@@ -61,7 +61,7 @@ docker run zuohuadong/networkdownload
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `th` | 线程数（并发连接数） | `4` |
+| `th` | 线程数（并发连接数） | `2` |
 | `time` | 运行时间（仅 oha 版本有效） | `2147483647sec` |
 | `url_custom` | 自定义 URL（留空则使用内置 URL 列表） | `` |
 | `ui` | 日志输出控制 | `--no-tui` (rust)<br>`--no-progress` (bun) |
@@ -71,6 +71,7 @@ docker run zuohuadong/networkdownload
 | `min_benchmark_speed` | 过滤阈值（KB/s），启动时过滤掉速度低于此值的节点 | `500` |
 | `top_urls` | 保留最快的 N 个节点用于轮换（0=不限制，保留所有符合条件的节点） | `0` (不限制) |
 | `benchmark_concurrent` | 并发测速线程数，加快启动速度 | `5` |
+| `max_display_urls` | 节点列表最大显示数量（0=显示全部） | `10` |
 | `url_update_enabled` | 是否启用运行时 URL 列表自动更新 | `true` |
 | `url_update_interval` | URL 列表自动更新间隔（天） | `7` |
 | `bandwidth_limit_download` | 下载带宽限制（KB/s），留空则不限制<br>**仅 Debian 版本支持** | `` |
@@ -302,7 +303,7 @@ docker run -e ui="" zuohuadong/networkdownload:bun
   - 条件 1：速度 ≥ min_benchmark_speed（默认 500 KB/s）
   - 条件 2：速度 ≥ 平均速度
   - 只保留同时满足两个条件的节点
-- **只保留最快节点**：默认只保留最快的 3 个节点，避免使用慢速节点
+- **智能保留节点**：默认保留所有符合条件的快速节点，可通过 `top_urls` 限制数量
 - 根据你的网络环境自动选择最优节点
 - 不同地区和网络环境会自动适配最优节点组合
 
