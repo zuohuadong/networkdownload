@@ -28,7 +28,7 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # 创建 URLs 目录
-RUN mkdir -p /app/urls
+RUN mkdir -p /app/urls /app/scripts
 
 # 复制 fetch_urls.sh 脚本并在构建时运行以获取最新 URL
 COPY scripts/fetch_urls.sh /tmp/fetch_urls.sh
@@ -37,12 +37,20 @@ RUN chmod +x /tmp/fetch_urls.sh && \
     /tmp/fetch_urls.sh && \
     rm /tmp/fetch_urls.sh
 
+# 复制运行时 URL 更新脚本
+COPY scripts/update_urls_runtime.sh /app/scripts/update_urls_runtime.sh
+RUN chmod +x /app/scripts/update_urls_runtime.sh
+
 # 设置默认环境变量
 ENV th=2
 ENV time=2147483647sec
 ENV url_custom=""
 ENV ui=--no-tui
 ENV tool=oha
+
+# URL 自动更新配置
+ENV url_update_enabled=true
+ENV url_update_interval=7
 
 # 使用新的入口脚本，支持多个备用 URL
 ENTRYPOINT ["/entrypoint.sh"] 

@@ -5,6 +5,10 @@
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 
+# URL 自动更新配置
+URL_UPDATE_INTERVAL_DAYS=${url_update_interval:-7}  # 默认 7 天更新一次
+URL_UPDATE_ENABLED=${url_update_enabled:-true}      # 默认启用自动更新
+
 # Terminal colors and formatting
 if [ -t 1 ]; then
     # Check if terminal supports colors
@@ -747,6 +751,44 @@ if [ -z "$SORTED_URLS" ]; then
     URL_LIST="$SORTED_URLS"
 fi
 
+# 启动后台 URL 定时更新任务
+start_url_updater() {
+    if [ "$URL_UPDATE_ENABLED" != "true" ]; then
+        log_info "URL 自动更新已禁用 (url_update_enabled=$URL_UPDATE_ENABLED)"
+        return
+    fi
+
+    local update_script="/app/scripts/update_urls_runtime.sh"
+    if [ ! -f "$update_script" ]; then
+        log_warning "URL 更新脚本不存在: $update_script"
+        return
+    fi
+
+    log_info "启动 URL 定时更新任务 (每 ${URL_UPDATE_INTERVAL_DAYS} 天)"
+
+    # 后台定时任务
+    (
+        while true; do
+            # 转换天数为秒
+            local sleep_seconds=$((URL_UPDATE_INTERVAL_DAYS * 86400))
+            sleep "$sleep_seconds"
+
+            # 运行更新脚本
+            if bash "$update_script"; then
+                log_info "URL 列表已更新，将在下次周期重新测速"
+            else
+                log_warning "URL 更新失败"
+            fi
+        done
+    ) &
+
+    URL_UPDATER_PID=$!
+    log_dim "  后台更新进程 PID: $URL_UPDATER_PID"
+}
+
+# 启动 URL 更新器
+start_url_updater
+
 # Main loop: use fastest URLs, only switch when speed degrades or download fails
 # Main loop: use fastest URLs, only switch when speed degrades or download fails
 # Initialize URL index
@@ -758,6 +800,33 @@ log_section "🚀 开始下载流量"
 echo ""
 
 while true; do
+    # 检查 URL 是否已更新
+    if [ -f /tmp/url_updated_flag ]; then
+        rm -f /tmp/url_updated_flag
+        log_section "🔄 检测到 URL 列表已更新，重新加载并测速"
+        echo ""
+
+        # 重新读取 URL 文件
+        if [ -f "$EXTERNAL_URL_FILE" ]; then
+            EXTERNAL_URLS=$(grep -v '^#' "$EXTERNAL_URL_FILE" | grep -v '^$' || true)
+            if [ -n "$EXTERNAL_URLS" ]; then
+                FULL_URL_LIST="$URLS
+$EXTERNAL_URLS"
+            fi
+        fi
+
+        # 重新测速所有 URL
+        rebenchmark_urls
+
+        # 更新 URL 数组
+        URL_ARRAY=($URL_LIST)
+        TOTAL_URLS=${#URL_ARRAY[@]}
+        CURRENT_URL_INDEX=1
+
+        log_section "🚀 继续下载流量"
+        echo ""
+    fi
+
     # Handle custom URL if provided
     if [ -n "$url_custom" ]; then
         CURRENT_URL="$url_custom"
