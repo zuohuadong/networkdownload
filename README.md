@@ -67,7 +67,7 @@ docker run zuohuadong/networkdownload
 | `th` | 线程数（并发连接数） | `2` |
 | `time` | 运行时间（仅 oha 版本有效） | `2147483647sec` |
 | `url_custom` | 自定义 URL（留空则使用内置 URL 列表） | `` |
-| `ui` | 日志输出控制 | `--no-tui` (rust)<br>`--no-progress` (bun) |
+| `ui` | 日志输出控制 | `--no-tui` (debian)<br>`--no-progress` (bun)<br>`silent` 或 `--silent` (完全静默) |
 | `min_speed` | 最低速度阈值（KB/s），低于此值将触发慢速计数 | `200` |
 | `check_interval` | 速度检查间隔（秒），建议 300-600 秒 | `300` |
 | `slow_threshold` | 慢速检测次数阈值，达到后切换节点 | `2` (容忍1次波动) |
@@ -106,11 +106,20 @@ docker run -e url_custom=https://your-custom-url.com/file.bin zuohuadong/network
 
 ### 查看详细日志
 ```bash
-# rust/alpine 版本
+# debian/alpine 版本
 docker run -e ui="" zuohuadong/networkdownload
 
 # bun 版本
 docker run -e ui="" zuohuadong/networkdownload:bun
+```
+
+### 完全静默模式（不输出任何日志）
+```bash
+# 所有版本通用 - 完全禁用日志输出
+docker run -e ui=silent zuohuadong/networkdownload
+
+# 或者使用
+docker run -e ui=--silent zuohuadong/networkdownload
 ```
 
 ### 自定义速度监控参数
@@ -170,7 +179,7 @@ docker run \
 
 ### 带宽限速
 ```bash
-# ⚠️ 注意：带宽限速仅支持 Debian 版本（latest/rust/debian）
+# ⚠️ 注意：带宽限速仅支持 Debian 版本（latest/debian）
 
 # 限制下载带宽为 10 MB/s (10240 KB/s) - Debian 版本
 docker run -e bandwidth_limit_download=10240 zuohuadong/networkdownload
@@ -236,7 +245,7 @@ docker run -e webhook_enabled=false zuohuadong/networkdownload
 
 | 版本标签 | 工具 | 架构支持 | 特点 |
 |---------|------|----------|------|
-| `latest` / `rust` / `debian` | oha | amd64, arm64, arm/v7 | 占用内存小，性能好，**支持带宽限速** |
+| `latest` / `debian` | oha | amd64, arm64, arm/v7 | 占用内存小，性能好，**支持带宽限速** |
 | `alpine` | oha | amd64, arm64 | 体积最小（基于 Alpine），**不支持带宽限速** |
 | `bun` | autocannon | amd64, arm64 | 兼容性好，使用 bun 优化，**不支持带宽限速** |
 
@@ -268,8 +277,8 @@ docker run -e webhook_enabled=false zuohuadong/networkdownload
 ### 手动构建
 
 ```bash
-# 构建 rust 版本
-docker build -t networkdownload:rust -f Dockerfile .
+# 构建 debian 版本
+docker build -t networkdownload:debian -f Dockerfile .
 
 # 构建 alpine 版本
 docker build -t networkdownload:alpine -f Dockerfile-alpine .
@@ -289,7 +298,7 @@ docker build -t networkdownload:bun -f Dockerfile-bun .
 - **URL 更新**：每次构建时自动从 [llxhq](https://github.com/uu6/llxhq) 获取最新刷流 URL
 
 每次构建后，GitHub Actions 会自动推送以下标签：
-- `latest`, `rust`, `debian`, `debian-时间戳`
+- `latest`, `debian`, `debian-时间戳`
 - `alpine`, `alpine-时间戳`
 - `bun`, `bun-时间戳`
 
@@ -306,7 +315,7 @@ docker build -t networkdownload:bun -f Dockerfile-bun .
 
 ### 如何限制带宽使用？
 
-**⚠️ 重要提示：带宽限制功能仅在 Debian 版本（`latest` / `rust` / `debian`）中可用。**
+**⚠️ 重要提示：带宽限制功能仅在 Debian 版本（`latest` / `debian`）中可用。**
 
 本工具的 Debian 版本内置了 `trickle` 带宽限制工具，可以通过环境变量轻松控制带宽：
 
@@ -324,7 +333,7 @@ docker run -e bandwidth_limit_download=10240 -e bandwidth_limit_upload=5120 zuoh
 - 100 MB/s = 102400 KB/s
 
 **版本限制说明**：
-- ✅ **Debian 版本** (`latest`, `rust`, `debian`)：支持带宽限速
+- ✅ **Debian 版本** (`latest`, `debian`)：支持带宽限速
 - ❌ **Alpine 版本** (`alpine`)：不支持（Alpine Linux 软件库中没有 trickle）
 - ❌ **Bun 版本** (`bun`)：不支持（基于 Alpine）
 
@@ -346,7 +355,7 @@ docker run --network=my-network \
 运行时不显示日志（默认），如需查看详细统计：
 
 ```bash
-# rust/alpine 版本
+# debian/alpine 版本
 docker run -e ui="" zuohuadong/networkdownload
 
 # bun 版本

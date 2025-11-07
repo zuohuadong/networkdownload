@@ -52,28 +52,34 @@ fi
 
 # Logging functions
 log_info() {
+    [ "$SILENT_MODE" = true ] && return
     echo -e "${COLOR_BLUE}ℹ${COLOR_RESET} ${COLOR_BOLD}$1${COLOR_RESET}"
 }
 
 log_success() {
+    [ "$SILENT_MODE" = true ] && return
     echo -e "${COLOR_BOLD_GREEN}✓${COLOR_RESET} ${COLOR_GREEN}$1${COLOR_RESET}"
 }
 
 log_warning() {
+    [ "$SILENT_MODE" = true ] && return
     echo -e "${COLOR_BOLD_YELLOW}⚠${COLOR_RESET} ${COLOR_YELLOW}$1${COLOR_RESET}"
 }
 
 log_error() {
+    [ "$SILENT_MODE" = true ] && return
     echo -e "${COLOR_BOLD_RED}✗${COLOR_RESET} ${COLOR_RED}$1${COLOR_RESET}"
 }
 
 log_section() {
+    [ "$SILENT_MODE" = true ] && return
     echo ""
     echo -e "${COLOR_BOLD_CYAN}$1${COLOR_RESET}"
     echo -e "${COLOR_GRAY}$(printf '%.0s─' {1..60})${COLOR_RESET}"
 }
 
 log_dim() {
+    [ "$SILENT_MODE" = true ] && return
     echo -e "${COLOR_DIM}$1${COLOR_RESET}"
 }
 
@@ -100,22 +106,31 @@ format_bytes() {
 
 # Dynamic logging functions for in-place updates
 log_progress() {
+    [ "$SILENT_MODE" = true ] && return
     # Print progress message that can be updated in place
     # Usage: log_progress "message"
     printf "\r%b %b%b\033[K" "${COLOR_BLUE}⏳${COLOR_RESET}" "${COLOR_BOLD}" "$1${COLOR_RESET}"
 }
 
 log_progress_done() {
+    [ "$SILENT_MODE" = true ] && return
     # Complete a progress line and move to next line
     printf "\r%b %b%b\033[K\n" "${COLOR_BOLD_GREEN}✓${COLOR_RESET}" "${COLOR_GREEN}" "$1${COLOR_RESET}"
 }
 
 clear_line() {
+    [ "$SILENT_MODE" = true ] && return
     printf "\r\033[K"
 }
 
 # Function to show live download stats (updates in place)
 show_live_stats() {
+    [ "$SILENT_MODE" = true ] && {
+        # In silent mode, just sleep for the duration
+        sleep "$1"
+        return
+    }
+
     local duration=$1
     local url=$2
     local elapsed=0
@@ -227,11 +242,11 @@ http://speedtest.ftp.otenet.gr/files/test100Mb.db
 # Load external URLs from file if available (auto-updated by CI)
 EXTERNAL_URL_FILE="/app/urls/external_urls.txt"
 if [ -f "$EXTERNAL_URL_FILE" ]; then
-    echo "Loading external URLs from $EXTERNAL_URL_FILE..."
+    [ "$SILENT_MODE" != true ] && echo "Loading external URLs from $EXTERNAL_URL_FILE..."
     EXTERNAL_URLS=$(grep -v '^#' "$EXTERNAL_URL_FILE" | grep -v '^$' || true)
     if [ -n "$EXTERNAL_URLS" ]; then
         EXTERNAL_COUNT=$(echo "$EXTERNAL_URLS" | wc -l)
-        echo "Found $EXTERNAL_COUNT external URLs from llxhq"
+        [ "$SILENT_MODE" != true ] && echo "Found $EXTERNAL_COUNT external URLs from llxhq"
         URLS="$URLS
 $EXTERNAL_URLS"
     fi
@@ -246,6 +261,13 @@ THREADS=${th:-4}
 DURATION=${time:-2147483647sec}
 UI_FLAG=${ui:---no-tui}
 TOOL=${tool:-oha}
+
+# Silent mode detection
+SILENT_MODE=false
+if [ "$UI_FLAG" = "silent" ] || [ "$UI_FLAG" = "--silent" ]; then
+    SILENT_MODE=true
+    UI_FLAG="--no-tui"  # Set default UI flag for tools
+fi
 
 # Speed monitoring settings
 MIN_SPEED=${min_speed:-200}  # Minimum speed in KB/s (default 200 KB/s)
@@ -336,10 +358,12 @@ load_traffic_data
 
 # Setup exit handler to save traffic data
 cleanup_and_save() {
-    echo ""
-    log_info "正在保存流量统计数据..."
+    if [ "$SILENT_MODE" != true ]; then
+        echo ""
+        log_info "正在保存流量统计数据..."
+    fi
     save_traffic_data
-    log_success "流量数据已保存"
+    [ "$SILENT_MODE" != true ] && log_success "流量数据已保存"
     exit 0
 }
 
@@ -375,66 +399,68 @@ if command -v trickle >/dev/null 2>&1; then
     TRICKLE_AVAILABLE=true
 fi
 
-log_section "🚀 Network Download Traffic Generator"
-echo ""
-log_info "Configuration"
-echo -e "  ${COLOR_CYAN}Tool:${COLOR_RESET}              ${COLOR_BOLD}$TOOL${COLOR_RESET}"
-echo -e "  ${COLOR_CYAN}Threads:${COLOR_RESET}           ${COLOR_BOLD}$THREADS${COLOR_RESET}"
-echo -e "  ${COLOR_CYAN}Duration:${COLOR_RESET}          ${COLOR_BOLD}$DURATION${COLOR_RESET}"
-echo -e "  ${COLOR_CYAN}Available URLs:${COLOR_RESET}    ${COLOR_BOLD}$URL_COUNT${COLOR_RESET}"
-echo -e "  ${COLOR_CYAN}Network Interface:${COLOR_RESET} ${COLOR_BOLD}${NETWORK_INTERFACE}${COLOR_RESET} ${COLOR_DIM}(监控流量统计)${COLOR_RESET}"
-echo ""
-log_info "Speed Thresholds"
-echo -e "  ${COLOR_CYAN}Min Speed:${COLOR_RESET}         ${COLOR_BOLD}${MIN_SPEED} KB/s${COLOR_RESET}"
-echo -e "  ${COLOR_CYAN}Min Benchmark:${COLOR_RESET}     ${COLOR_BOLD}${MIN_BENCHMARK_SPEED} KB/s${COLOR_RESET}"
-if [ "$TOP_URLS_COUNT" -eq 0 ]; then
-    echo -e "  ${COLOR_CYAN}Top URLs:${COLOR_RESET}          ${COLOR_BOLD}不限制${COLOR_RESET} ${COLOR_DIM}(保留所有符合条件的节点)${COLOR_RESET}"
-else
-    echo -e "  ${COLOR_CYAN}Top URLs:${COLOR_RESET}          ${COLOR_BOLD}${TOP_URLS_COUNT}${COLOR_RESET}"
-fi
-echo -e "  ${COLOR_CYAN}Check Interval:${COLOR_RESET}    ${COLOR_BOLD}${CHECK_INTERVAL}s${COLOR_RESET} ${COLOR_DIM}(every $((CHECK_INTERVAL / 60)) min)${COLOR_RESET}"
-echo -e "  ${COLOR_CYAN}Slow Threshold:${COLOR_RESET}    ${COLOR_BOLD}${SLOW_THRESHOLD}${COLOR_RESET} ${COLOR_DIM}(tolerate $((SLOW_THRESHOLD - 1)) fluctuation)${COLOR_RESET}"
-echo -e "  ${COLOR_CYAN}Concurrent Tests:${COLOR_RESET}  ${COLOR_BOLD}${BENCHMARK_CONCURRENT}${COLOR_RESET}"
-if [ "$SPEED_WINDOW_ENABLED" = "true" ]; then
-    echo -e "  ${COLOR_CYAN}Speed Window:${COLOR_RESET}      ${COLOR_BOLD_GREEN}Enabled${COLOR_RESET} ${COLOR_DIM}(avg of last ${SPEED_WINDOW_SIZE} measurements)${COLOR_RESET}"
-else
-    echo -e "  ${COLOR_CYAN}Speed Window:${COLOR_RESET}      ${COLOR_DIM}Disabled${COLOR_RESET}"
-fi
-if [ "$MAX_DISPLAY_URLS" -eq 0 ]; then
-    echo -e "  ${COLOR_CYAN}Max Display:${COLOR_RESET}       ${COLOR_BOLD}不限制${COLOR_RESET} ${COLOR_DIM}(显示所有节点)${COLOR_RESET}"
-else
-    echo -e "  ${COLOR_CYAN}Max Display:${COLOR_RESET}       ${COLOR_BOLD}${MAX_DISPLAY_URLS}${COLOR_RESET} ${COLOR_DIM}个节点${COLOR_RESET}"
-fi
-echo ""
-if [ -n "$BANDWIDTH_LIMIT_DOWNLOAD" ] || [ -n "$BANDWIDTH_LIMIT_UPLOAD" ]; then
-    if [ "$TRICKLE_AVAILABLE" = true ]; then
-        log_info "Bandwidth Limiting: ${COLOR_BOLD_GREEN}Enabled${COLOR_RESET} (via trickle)"
-        [ -n "$BANDWIDTH_LIMIT_DOWNLOAD" ] && echo -e "  ${COLOR_CYAN}Download Limit:${COLOR_RESET}   ${COLOR_BOLD}${BANDWIDTH_LIMIT_DOWNLOAD} KB/s${COLOR_RESET}"
-        [ -n "$BANDWIDTH_LIMIT_UPLOAD" ] && echo -e "  ${COLOR_CYAN}Upload Limit:${COLOR_RESET}     ${COLOR_BOLD}${BANDWIDTH_LIMIT_UPLOAD} KB/s${COLOR_RESET}"
+if [ "$SILENT_MODE" != true ]; then
+    log_section "🚀 Network Download Traffic Generator"
+    echo ""
+    log_info "Configuration"
+    echo -e "  ${COLOR_CYAN}Tool:${COLOR_RESET}              ${COLOR_BOLD}$TOOL${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Threads:${COLOR_RESET}           ${COLOR_BOLD}$THREADS${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Duration:${COLOR_RESET}          ${COLOR_BOLD}$DURATION${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Available URLs:${COLOR_RESET}    ${COLOR_BOLD}$URL_COUNT${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Network Interface:${COLOR_RESET} ${COLOR_BOLD}${NETWORK_INTERFACE}${COLOR_RESET} ${COLOR_DIM}(监控流量统计)${COLOR_RESET}"
+    echo ""
+    log_info "Speed Thresholds"
+    echo -e "  ${COLOR_CYAN}Min Speed:${COLOR_RESET}         ${COLOR_BOLD}${MIN_SPEED} KB/s${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Min Benchmark:${COLOR_RESET}     ${COLOR_BOLD}${MIN_BENCHMARK_SPEED} KB/s${COLOR_RESET}"
+    if [ "$TOP_URLS_COUNT" -eq 0 ]; then
+        echo -e "  ${COLOR_CYAN}Top URLs:${COLOR_RESET}          ${COLOR_BOLD}不限制${COLOR_RESET} ${COLOR_DIM}(保留所有符合条件的节点)${COLOR_RESET}"
     else
-        log_warning "Bandwidth Limiting: UNAVAILABLE (trickle not installed)"
-        log_dim "  Note: Bandwidth limiting is only available in the Debian version"
-        log_dim "  Requested limits will be ignored: download=${BANDWIDTH_LIMIT_DOWNLOAD:-none} KB/s, upload=${BANDWIDTH_LIMIT_UPLOAD:-none} KB/s"
+        echo -e "  ${COLOR_CYAN}Top URLs:${COLOR_RESET}          ${COLOR_BOLD}${TOP_URLS_COUNT}${COLOR_RESET}"
     fi
-else
-    log_info "Bandwidth Limiting: ${COLOR_DIM}Disabled${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Check Interval:${COLOR_RESET}    ${COLOR_BOLD}${CHECK_INTERVAL}s${COLOR_RESET} ${COLOR_DIM}(every $((CHECK_INTERVAL / 60)) min)${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Slow Threshold:${COLOR_RESET}    ${COLOR_BOLD}${SLOW_THRESHOLD}${COLOR_RESET} ${COLOR_DIM}(tolerate $((SLOW_THRESHOLD - 1)) fluctuation)${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Concurrent Tests:${COLOR_RESET}  ${COLOR_BOLD}${BENCHMARK_CONCURRENT}${COLOR_RESET}"
+    if [ "$SPEED_WINDOW_ENABLED" = "true" ]; then
+        echo -e "  ${COLOR_CYAN}Speed Window:${COLOR_RESET}      ${COLOR_BOLD_GREEN}Enabled${COLOR_RESET} ${COLOR_DIM}(avg of last ${SPEED_WINDOW_SIZE} measurements)${COLOR_RESET}"
+    else
+        echo -e "  ${COLOR_CYAN}Speed Window:${COLOR_RESET}      ${COLOR_DIM}Disabled${COLOR_RESET}"
+    fi
+    if [ "$MAX_DISPLAY_URLS" -eq 0 ]; then
+        echo -e "  ${COLOR_CYAN}Max Display:${COLOR_RESET}       ${COLOR_BOLD}不限制${COLOR_RESET} ${COLOR_DIM}(显示所有节点)${COLOR_RESET}"
+    else
+        echo -e "  ${COLOR_CYAN}Max Display:${COLOR_RESET}       ${COLOR_BOLD}${MAX_DISPLAY_URLS}${COLOR_RESET} ${COLOR_DIM}个节点${COLOR_RESET}"
+    fi
+    echo ""
+    if [ -n "$BANDWIDTH_LIMIT_DOWNLOAD" ] || [ -n "$BANDWIDTH_LIMIT_UPLOAD" ]; then
+        if [ "$TRICKLE_AVAILABLE" = true ]; then
+            log_info "Bandwidth Limiting: ${COLOR_BOLD_GREEN}Enabled${COLOR_RESET} (via trickle)"
+            [ -n "$BANDWIDTH_LIMIT_DOWNLOAD" ] && echo -e "  ${COLOR_CYAN}Download Limit:${COLOR_RESET}   ${COLOR_BOLD}${BANDWIDTH_LIMIT_DOWNLOAD} KB/s${COLOR_RESET}"
+            [ -n "$BANDWIDTH_LIMIT_UPLOAD" ] && echo -e "  ${COLOR_CYAN}Upload Limit:${COLOR_RESET}     ${COLOR_BOLD}${BANDWIDTH_LIMIT_UPLOAD} KB/s${COLOR_RESET}"
+        else
+            log_warning "Bandwidth Limiting: UNAVAILABLE (trickle not installed)"
+            log_dim "  Note: Bandwidth limiting is only available in the Debian version"
+            log_dim "  Requested limits will be ignored: download=${BANDWIDTH_LIMIT_DOWNLOAD:-none} KB/s, upload=${BANDWIDTH_LIMIT_UPLOAD:-none} KB/s"
+        fi
+    else
+        log_info "Bandwidth Limiting: ${COLOR_DIM}Disabled${COLOR_RESET}"
+    fi
+    echo ""
+    if [ -n "$WEBHOOK_URL" ] && [ "$WEBHOOK_ENABLED" = "true" ]; then
+        log_info "Webhook Notifications: ${COLOR_BOLD_GREEN}Enabled${COLOR_RESET}"
+        echo -e "  ${COLOR_CYAN}Webhook URL:${COLOR_RESET}      ${COLOR_DIM}${WEBHOOK_URL:0:50}...${COLOR_RESET}"
+        echo -e "  ${COLOR_CYAN}Min Interval:${COLOR_RESET}     ${COLOR_BOLD}$((WEBHOOK_MIN_INTERVAL / 60)) min${COLOR_RESET}"
+        echo -e "  ${COLOR_CYAN}Notify Slow Speed:${COLOR_RESET} ${COLOR_BOLD}${WEBHOOK_NOTIFY_SLOW}${COLOR_RESET}"
+        echo -e "  ${COLOR_CYAN}Notify No Nodes:${COLOR_RESET}   ${COLOR_BOLD}${WEBHOOK_NOTIFY_NO_NODES}${COLOR_RESET}"
+    else
+        log_info "Webhook Notifications: ${COLOR_DIM}Disabled${COLOR_RESET}"
+    fi
+    echo ""
+    log_info "Traffic Statistics"
+    echo -e "  ${COLOR_CYAN}Historical Total:${COLOR_RESET} ${COLOR_BOLD}$(format_bytes $TOTAL_HISTORICAL_BYTES)${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Month Total:${COLOR_RESET}      ${COLOR_BOLD}$(format_bytes $MONTH_BYTES)${COLOR_RESET} ${COLOR_DIM}(${CURRENT_MONTH})${COLOR_RESET}"
+    echo -e "  ${COLOR_CYAN}Data File:${COLOR_RESET}        ${COLOR_DIM}${TRAFFIC_DATA_FILE}${COLOR_RESET}"
+    echo ""
 fi
-echo ""
-if [ -n "$WEBHOOK_URL" ] && [ "$WEBHOOK_ENABLED" = "true" ]; then
-    log_info "Webhook Notifications: ${COLOR_BOLD_GREEN}Enabled${COLOR_RESET}"
-    echo -e "  ${COLOR_CYAN}Webhook URL:${COLOR_RESET}      ${COLOR_DIM}${WEBHOOK_URL:0:50}...${COLOR_RESET}"
-    echo -e "  ${COLOR_CYAN}Min Interval:${COLOR_RESET}     ${COLOR_BOLD}$((WEBHOOK_MIN_INTERVAL / 60)) min${COLOR_RESET}"
-    echo -e "  ${COLOR_CYAN}Notify Slow Speed:${COLOR_RESET} ${COLOR_BOLD}${WEBHOOK_NOTIFY_SLOW}${COLOR_RESET}"
-    echo -e "  ${COLOR_CYAN}Notify No Nodes:${COLOR_RESET}   ${COLOR_BOLD}${WEBHOOK_NOTIFY_NO_NODES}${COLOR_RESET}"
-else
-    log_info "Webhook Notifications: ${COLOR_DIM}Disabled${COLOR_RESET}"
-fi
-echo ""
-log_info "Traffic Statistics"
-echo -e "  ${COLOR_CYAN}Historical Total:${COLOR_RESET} ${COLOR_BOLD}$(format_bytes $TOTAL_HISTORICAL_BYTES)${COLOR_RESET}"
-echo -e "  ${COLOR_CYAN}Month Total:${COLOR_RESET}      ${COLOR_BOLD}$(format_bytes $MONTH_BYTES)${COLOR_RESET} ${COLOR_DIM}(${CURRENT_MONTH})${COLOR_RESET}"
-echo -e "  ${COLOR_CYAN}Data File:${COLOR_RESET}        ${COLOR_DIM}${TRAFFIC_DATA_FILE}${COLOR_RESET}"
-echo ""
 
 # Function to format seconds to human readable duration
 format_duration() {
@@ -519,6 +545,8 @@ EOF
 
 # Function to display traffic statistics (dynamic, in-place update)
 show_stats() {
+    [ "$SILENT_MODE" = true ] && return
+
     local current_time=$(date +%s)
     local session_duration=$((current_time - SESSION_START))
 
