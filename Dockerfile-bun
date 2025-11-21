@@ -1,0 +1,32 @@
+FROM oven/bun:alpine
+
+RUN bun install autocannon -g
+
+# 安装 curl 和 bash
+RUN apk add --no-cache curl bash
+
+# 复制入口脚本
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# 创建 URLs 目录和脚本目录
+RUN mkdir -p /app/urls /app/scripts
+
+# 复制运行时 URL 获取脚本（首次启动时执行）
+COPY scripts/fetch_urls.sh /app/scripts/fetch_urls.sh
+COPY scripts/update_urls_runtime.sh /app/scripts/update_urls_runtime.sh
+RUN chmod +x /app/scripts/fetch_urls.sh /app/scripts/update_urls_runtime.sh
+
+# 设置默认环境变量
+ENV th=2
+#ENV time=2147483647sec
+ENV url_custom=""
+ENV ui=--no-progress
+ENV tool=autocannon
+
+# URL 自动更新配置
+ENV url_update_enabled=true
+ENV url_update_interval=7
+
+# 使用新的入口脚本，支持多个备用 URL
+ENTRYPOINT ["/entrypoint.sh"]
